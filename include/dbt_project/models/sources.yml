@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: raw
+    database: raw
+    tables:
+      - name: signoz_logs
+      - name: signoz_traces
+      - name: signoz_metrics
+      - name: langfuse_generations
+      - name: user_interactions

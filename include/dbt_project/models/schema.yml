@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: fct_llm_interactions
+    description: "Conversations turn list enriched with SigNoz errors and Langfuse metadata"
+    columns:
+      - name: interaction_id
+        description: "Primary key"
+        tests:
+          - unique
+          - not_null
+      - name: prompt_text
+        description: "User prompt text"
+        tests:
+          - not_null
+      - name: model
+        description: "LLM model name used"
+        tests:
+          - not_null
+      - name: total_tokens
+        description: "Total token count"
+        tests:
+          - not_null

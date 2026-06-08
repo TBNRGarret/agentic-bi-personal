@@ -1,0 +1,10 @@
+dbt_project:
+  outputs:
+    dev:
+      type: clickhouse
+      host: "{{ env_var('AGENTIC_DBT_CLICKHOUSE_HOST', 'agentic_clickhouse') }}"
+      port: "{{ env_var('AGENTIC_DBT_CLICKHOUSE_PORT', '9000') | int }}"
+      user: "{{ env_var('AGENTIC_CLICKHOUSE_USER', 'default') }}"
+      password: "{{ env_var('AGENTIC_CLICKHOUSE_PASSWORD', 'securepassword') }}"
+      schema: "{{ env_var('AGENTIC_DBT_SCHEMA', 'agentic_bi') }}"
+  target: dev

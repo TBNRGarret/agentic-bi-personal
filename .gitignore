@@ -1,0 +1,13 @@
+.astro/
+.pytest_cache/
+pytest-cache-files-*/
+
+include/dbt_project/target/
+include/dbt_project/logs/
+include/dbt_project/dbt_packages/
+include/dbt_project/.user.yml
+
+__pycache__/
+*.py[cod]
+
+.env

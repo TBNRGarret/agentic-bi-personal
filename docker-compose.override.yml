@@ -1,0 +1,36 @@
+# Agentic BI - Docker Compose Override for Astro CLI
+#
+# Strategy:
+#   - Own ClickHouse for Agentic BI silver/gold tables.
+#   - Reuse existing sprint-1 services via dwh_network/signoz-net.
+#   - Airflow containers are connected post-start via scripts/connect-networks.ps1.
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    container_name: agentic_clickhouse
+    environment:
+      - CLICKHOUSE_PASSWORD=${AGENTIC_CLICKHOUSE_PASSWORD:-securepassword}
+    ports:
+      - "18123:8123"   # HTTP, offset to avoid SigNoz ClickHouse on 8123
+      - "19000:9000"   # Native TCP, offset to avoid conflict
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - airflow
+      - dwh_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+networks:
+  airflow:
+  dwh_network:
+    external: true
+    name: dwh_network
+
+volumes:
+  clickhouse_data:
