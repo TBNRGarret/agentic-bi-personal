@@ -1,0 +1,99 @@
+services:
+  postgres-dwh:
+    image: postgres:16-alpine
+    container_name: agentic-bi-postgres-dwh
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: central_dwh
+      POSTGRES_USER: dwh_admin
+      POSTGRES_PASSWORD: dwh_admin_password
+      TZ: UTC
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_dwh_data:/var/lib/postgresql/data
+      - ./dwh/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dwh_admin -d central_dwh"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  minio:
+    image: minio/minio:latest
+    container_name: agentic-bi-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio_admin
+      MINIO_ROOT_PASSWORD: minio_admin_password
+      TZ: UTC
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: agentic-bi-minio-init
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        until mc alias set local http://minio:9000 minio_admin minio_admin_password; do
+          sleep 2
+        done
+        mc mb -p local/telemetry-landing
+        mc anonymous set none local/telemetry-landing
+        mc ls local
+    restart: "no"
+
+  metabase-db:
+    image: postgres:16-alpine
+    container_name: agentic-bi-metabase-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: metabase
+      POSTGRES_USER: metabase
+      POSTGRES_PASSWORD: metabase_password
+      TZ: UTC
+    volumes:
+      - metabase_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metabase -d metabase"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: agentic-bi-metabase
+    restart: unless-stopped
+    depends_on:
+      metabase-db:
+        condition: service_healthy
+      postgres-dwh:
+        condition: service_healthy
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: 5432
+      MB_DB_USER: metabase
+      MB_DB_PASS: metabase_password
+      MB_DB_HOST: metabase-db
+      MB_SITE_NAME: Agentic BI
+      MB_SITE_URL: http://localhost:3000
+      TZ: UTC
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_dwh_data:
+  minio_data:
+  metabase_db_data:
