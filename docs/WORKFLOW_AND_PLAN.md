@@ -322,6 +322,49 @@ PostgreSQL gold schema (aggregations: cost theo ngày, model perf, env compariso
 Kết quả → Table / Chart (Recharts) / Metabase Dashboard
 ```
 
+### 2.5 Batch Tracking & Validation
+
+Kế thừa từ runbook cũ, thêm 2 bảng tracking để đảm bảo pipeline reliable:
+
+**`source_app_registry`** — đăng ký các source được phép gửi data:
+```sql
+CREATE TABLE IF NOT EXISTS raw.source_app_registry (
+    source_app TEXT PRIMARY KEY,          -- 'local_dwh', 'bach_local_dwh', ...
+    source_owner TEXT NOT NULL,            -- 'AN', 'BACH', 'HOANG', 'TUAN'
+    source_env TEXT NOT NULL DEFAULT 'prod',
+    description TEXT,
+    expected_tables TEXT[] NOT NULL DEFAULT '{}',
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**`raw.ingestion_batches`** — track từng batch ingest:
+```sql
+CREATE TABLE IF NOT EXISTS raw.ingestion_batches (
+    batch_id TEXT PRIMARY KEY,
+    source_owner TEXT NOT NULL,
+    target_table TEXT NOT NULL,
+    object_path TEXT NOT NULL,
+    manifest_path TEXT NOT NULL,
+    declared_rows BIGINT,
+    loaded_rows BIGINT,
+    status TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING → VALIDATING → LOADING → LOADED | FAILED
+    error_message TEXT,
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
+    _ingested_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+Quy trình validation khi Airflow phát hiện batch mới:
+1. Kiểm tra `source_owner` có trong `source_app_registry` không
+2. Đọc `manifest.json` → kiểm tra `row_count` khớp với Parquet
+3. Kiểm tra batch chưa từng được ingest (idempotent)
+4. INSERT vào `raw.ingestion_batches` status `LOADING`
+5. Ingest data → UPDATE status `LOADED` hoặc `FAILED`
+
 ---
 
 ## 3. Kế hoạch 10 Ngày (Accelerated)
@@ -484,7 +527,51 @@ Kết quả → Table / Chart (Recharts) / Metabase Dashboard
    CREATE SCHEMA IF NOT EXISTS silver;
    CREATE SCHEMA IF NOT EXISTS gold;
 
-   -- LLM generations (all columns as TEXT để handle schema diff giữa các owners)
+   -- ==========================================
+   -- TRACKING & VALIDATION TABLES
+   -- ==========================================
+
+   -- Registry: các source được phép gửi data
+   CREATE TABLE IF NOT EXISTS raw.source_app_registry (
+       source_app TEXT PRIMARY KEY,
+       source_owner TEXT NOT NULL,
+       source_env TEXT NOT NULL DEFAULT 'prod',
+       description TEXT,
+       expected_tables TEXT[] NOT NULL DEFAULT '{}',
+       is_active BOOLEAN NOT NULL DEFAULT true,
+       created_at TIMESTAMPTZ DEFAULT NOW(),
+       updated_at TIMESTAMPTZ DEFAULT NOW()
+   );
+
+   -- Tracking: mỗi batch ingest
+   CREATE TABLE IF NOT EXISTS raw.ingestion_batches (
+       batch_id TEXT PRIMARY KEY,
+       source_owner TEXT NOT NULL,
+       target_table TEXT NOT NULL,
+       object_path TEXT NOT NULL,
+       manifest_path TEXT NOT NULL,
+       declared_rows BIGINT,
+       loaded_rows BIGINT,
+       status TEXT NOT NULL DEFAULT 'PENDING',
+       error_message TEXT,
+       started_at TIMESTAMPTZ,
+       finished_at TIMESTAMPTZ,
+       _ingested_at TIMESTAMPTZ DEFAULT NOW()
+   );
+
+   -- Seed registered sources
+   INSERT INTO raw.source_app_registry (source_app, source_owner, source_env, expected_tables) VALUES
+       ('local_dwh', 'AN', 'prod', ARRAY['staging_llm_generations','staging_llm_traces','staging_system_logs','staging_system_traces']),
+       ('bach_local_dwh', 'BACH', 'prod', ARRAY['staging_llm_generations','staging_llm_traces','staging_system_logs','staging_system_traces']),
+       ('hoang_local_dwh', 'HOANG', 'prod', ARRAY['staging_llm_generations','staging_llm_traces','staging_system_logs','staging_system_traces','staging_system_metrics']),
+       ('tuan_local_dwh', 'TUAN', 'prod', ARRAY['staging_llm_traces','staging_system_logs','staging_system_traces'])
+   ON CONFLICT (source_app) DO NOTHING;
+
+   -- ==========================================
+   -- RAW DATA TABLES (all columns as TEXT do schema diff)
+   -- ==========================================
+
+   -- LLM generations
    CREATE TABLE IF NOT EXISTS raw.llm_generations (
        id TEXT PRIMARY KEY,
        langfuse_id TEXT,
@@ -655,6 +742,21 @@ Kết quả → Table / Chart (Recharts) / Metabase Dashboard
 
        for prefix in SOURCE_PREFIXES:
            owner = prefix.split("_")[0]  # AN, BACH, HOANG, TUAN
+           source_app = prefix.split("/")[1]  # local_dwh, bach_local_dwh, ...
+
+           # === Bước 0: Kiểm tra source có trong registry ===
+           cur.execute(
+               "SELECT is_active FROM raw.source_app_registry WHERE source_app = %s AND source_owner = %s",
+               (source_app, owner)
+           )
+           row = cur.fetchone()
+           if not row:
+               print(f"⏭️  {owner}/{source_app} not in registry, skipping")
+               continue
+           if not row[0]:
+               print(f"⏭️  {owner}/{source_app} is inactive, skipping")
+               continue
+
            keys = hook.list_keys(Bucket=S3_BUCKET, Prefix=prefix)
            parquet_files = [k for k in keys if k.endswith("data.parquet")]
 
@@ -665,40 +767,64 @@ Kết quả → Table / Chart (Recharts) / Metabase Dashboard
                if not raw_table:
                    continue
 
-               # Đọc manifest.json để lấy batch_id (dùng để tránh re-ingest)
+               # Đọc manifest.json
                manifest_key = s3_key.replace("data.parquet", "manifest.json")
                try:
                    obj = hook.get_key(manifest_key, S3_BUCKET)
                    manifest = json.loads(obj.get()["Body"].read())
                    batch_id = manifest["batch_id"]
-               except:
-                   batch_id = parts[4]  # fallback: dùng folder name
-
-               # Kiểm tra batch này đã ingest chưa (idempotent)
-               cur.execute(
-                   f"SELECT COUNT(*) FROM raw.{raw_table} WHERE _batch_id = %s",
-                   (batch_id,)
-               )
-               if cur.fetchone()[0] > 0:
-                   print(f"⏭️  Already ingested: {s3_key}")
+                   declared_rows = manifest.get("row_count", 0)
+                   manifest_path = manifest_key
+               except Exception as e:
+                   print(f"⚠️  No manifest for {s3_key}: {e}")
                    continue
 
-               # Đọc Parquet
+               # === Bước 1: Kiểm tra batch đã ingest chưa ===
+               cur.execute(
+                   "SELECT status FROM raw.ingestion_batches WHERE batch_id = %s",
+                   (batch_id,)
+               )
+               existing = cur.fetchone()
+               if existing:
+                   if existing[0] == 'LOADED':
+                       print(f"⏭️  Batch {batch_id} already loaded")
+                       continue
+                   elif existing[0] == 'LOADING':
+                       print(f"⚠️  Batch {batch_id} is LOADING, retry later")
+                       continue
+
+               # === Bước 2: Validate row count ===
                obj = hook.get_key(s3_key, S3_BUCKET)
                data = obj.get()["Body"].read()
+               import pyarrow.parquet as pq
+               import pyarrow as pa
+               import io
                table = pq.read_table(io.BytesIO(data))
+               actual_rows = table.num_rows
+
+               if declared_rows and actual_rows != declared_rows:
+                   print(f"⚠️  Row count mismatch: manifest={declared_rows}, actual={actual_rows}")
+
+               # === Bước 3: Insert batch tracking record ===
+               cur.execute("""
+                   INSERT INTO raw.ingestion_batches
+                       (batch_id, source_owner, target_table, object_path, manifest_path,
+                        declared_rows, status, started_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, 'LOADING', NOW())
+                   ON CONFLICT (batch_id) DO UPDATE SET status = 'LOADING', started_at = NOW()
+               """, (batch_id, owner, raw_table, s3_key, manifest_path, declared_rows))
+               conn.commit()
 
                # Thêm source_owner + _batch_id
-               owner_col = pa.array([owner] * table.num_rows, type=pa.string())
-               batch_col = pa.array([batch_id] * table.num_rows, type=pa.string())
+               owner_col = pa.array([owner] * actual_rows, type=pa.string())
+               batch_col = pa.array([batch_id] * actual_rows, type=pa.string())
                table = table.append_column("source_owner", owner_col)
                table = table.append_column("_batch_id", batch_col)
 
-               # Convert tất cả sang string để tránh schema diff
+               # Convert numeric/timestamp → string
                new_columns = []
                for col_name in table.column_names:
                    col = table.column(col_name)
-                   # Chỉ convert numeric/timestamp columns → string
                    if pa.types.is_integer(col.type) or pa.types.is_floating(col.type) or pa.types.is_timestamp(col.type):
                        str_arr = pa.array([str(v) if v is not None else None for v in col], type=pa.string())
                        new_columns.append(str_arr)
@@ -712,18 +838,26 @@ Kết quả → Table / Chart (Recharts) / Metabase Dashboard
                cols_sql = ", ".join(columns)
                sql = f"INSERT INTO raw.{raw_table} ({cols_sql}) VALUES ({placeholders}) ON CONFLICT (id) DO NOTHING"
 
-               for i in range(table.num_rows):
+               loaded = 0
+               for i in range(actual_rows):
                    row = [table.column(j)[i].as_py() for j in range(len(columns))]
                    row = [None if v is None or (isinstance(v, float) and str(v) == "nan") else v for v in row]
                    try:
                        cur.execute(sql, row)
+                       loaded += 1
                    except Exception as e:
-                       print(f"⚠️  Error row {i} from {s3_key}: {e}")
+                       print(f"⚠️  Error row {i}: {e}")
                        continue
 
+               # Update batch tracking
+               cur.execute("""
+                   UPDATE raw.ingestion_batches
+                   SET status = 'LOADED', loaded_rows = %s, finished_at = NOW()
+                   WHERE batch_id = %s
+               """, (loaded, batch_id))
                conn.commit()
-               total += table.num_rows
-               print(f"✅ {s3_key}: {table.num_rows} rows → raw.{raw_table}")
+               total += loaded
+               print(f"✅ {s3_key}: {loaded}/{actual_rows} rows → raw.{raw_table}")
 
        cur.close()
        conn.close()
@@ -1335,6 +1469,8 @@ Kết quả → Table / Chart (Recharts) / Metabase Dashboard
 - [ ] `curl -X POST localhost:8000/api/chat -d '{"message":"LLM cost by model this month"}'` → SQL + kết quả
 - [ ] Frontend `http://localhost:3000` — chat gửi tin nhắn → hiển thị table/chart
 - [ ] Metabase `http://localhost:3001` — connected to DWH
+- [ ] **Batch tracking**: `SELECT status, COUNT(*) FROM raw.ingestion_batches GROUP BY status` → all LOADED
+- [ ] **Registry**: `SELECT source_owner, is_active FROM raw.source_app_registry` → 4 sources active
 - [ ] Test ≥5 câu hỏi NL đa dạng:
   - "Total cost per owner"
   - "Which model has highest latency?"
