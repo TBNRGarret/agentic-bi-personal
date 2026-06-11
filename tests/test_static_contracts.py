@@ -123,6 +123,93 @@ def test_generated_artifacts_are_ignored():
         assert pattern in gitignore
 
 
+def test_datahub_vps_compose_defines_pinned_resource_limited_stack():
+    compose = read("docker-compose-datahub.yml")
+
+    for service in (
+        "  datahub-mysql:",
+        "  datahub-opensearch:",
+        "  datahub-kafka-broker:",
+        "  datahub-system-update:",
+        "  datahub-gms:",
+        "  datahub-frontend:",
+        "  datahub-actions:",
+    ):
+        assert service in compose
+
+    assert "acryldata/datahub-gms:${DATAHUB_VERSION:-v1.4.0}" in compose
+    assert "acryldata/datahub-frontend-react:${DATAHUB_VERSION:-v1.4.0}" in compose
+    assert "opensearchproject/opensearch:2.19.3" in compose
+    assert "confluentinc/cp-kafka:8.0.0" in compose
+    assert "datahub-zookeeper" not in compose
+    assert "docker.elastic.co/elasticsearch" not in compose
+
+    for memory_limit in ("mem_limit: 768m", "mem_limit: 1536m", "mem_limit: 1024m"):
+        assert memory_limit in compose
+
+    assert '"${DATAHUB_MAPPED_GMS_PORT:-28080}:8080"' in compose
+    assert '"${DATAHUB_MAPPED_FRONTEND_PORT:-9002}:9002"' in compose
+    assert "DATAHUB_TOKEN_SERVICE_SIGNING_KEY" in compose
+    assert "DATAHUB_TOKEN_SERVICE_SALT" in compose
+
+
+def test_datahub_vps_env_template_documents_required_runtime_values():
+    env_template = read(".env.datahub-vps.example")
+
+    for key in (
+        "DATAHUB_VERSION=v1.4.0",
+        "DATAHUB_TOKEN_SERVICE_SIGNING_KEY=",
+        "DATAHUB_TOKEN_SERVICE_SALT=",
+        "DATAHUB_MAPPED_GMS_PORT=28080",
+        "DATAHUB_MAPPED_FRONTEND_PORT=9002",
+    ):
+        assert key in env_template
+
+    assert "openssl rand -base64 32" in env_template
+
+
+def test_datahub_vps_monitoring_scripts_capture_memory_and_crash_evidence():
+    monitor = read("scripts/vps-datahub-monitor.sh")
+    capacity_check = read("scripts/vps-datahub-capacity-check.sh")
+
+    for script in (monitor, capacity_check):
+        assert "docker-compose-datahub.yml" in script
+        assert "datahub-vps" in script
+
+    assert "docker stats --no-stream" in monitor
+    assert "free -m" in monitor
+    assert "OOMKilled" in monitor
+    assert "RestartCount" in monitor
+    assert "ExitCode" in monitor
+    assert "datahub-system-update" in monitor
+    assert "logs/datahub-vps" in monitor
+    assert "htop" in monitor
+
+    assert "vps-datahub-monitor.sh" in capacity_check
+    assert "http://localhost:${DATAHUB_MAPPED_GMS_PORT:-28080}/health" in capacity_check
+    assert "source \"$ENV_FILE\"" not in monitor
+    assert "source \"$ENV_FILE\"" not in capacity_check
+    assert "env_value()" in capacity_check
+    assert "vm.max_map_count" in capacity_check
+    assert "docker compose" in capacity_check
+
+
+def test_datahub_test_plan_points_to_runnable_vps_artifacts():
+    plan = read("docs/DATAHUB_TEST_PLAN.md")
+
+    for expected in (
+        "docker-compose-datahub.yml",
+        ".env.datahub-vps.example",
+        "scripts/vps-datahub-capacity-check.sh",
+        "scripts/vps-datahub-monitor.sh",
+        "docker compose --env-file .env.datahub-vps -f docker-compose-datahub.yml -p datahub-vps up -d",
+        "docker stats --no-stream",
+        "free -m",
+        "vm.max_map_count",
+    ):
+        assert expected in plan
+
+
 def test_seed_uses_worker_compatible_watermark_names():
     seed = read("scripts/seed_dwh.py")
 

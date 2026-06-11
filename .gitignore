@@ -6,8 +6,12 @@ include/dbt_project/target/
 include/dbt_project/logs/
 include/dbt_project/dbt_packages/
 include/dbt_project/.user.yml
+logs/datahub-vps/
 
 __pycache__/
 *.py[cod]
 
 .env
+.env.datahub-vps
+.venv/
+venv/
