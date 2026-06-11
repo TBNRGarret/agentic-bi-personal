@@ -249,3 +249,118 @@ All batches tracked in `raw.ingestion_batches` with status LOADED.
 | `dbt/models/staging/stg_system_traces.sql` | Created - staging model |
 | `dbt/models/staging/stg_system_metrics.sql` | Created - staging model |
 | `docs/report.md` | Modified - added Day 2 summary |
+
+---
+
+# Day 3 -- dbt Gold Models + Pipeline Orchestration
+
+**Date**: June 11, 2026
+
+---
+
+## Summary
+
+Built 5 gold (mart) models for LLM analytics, added data quality tests, and created Airflow DAG to orchestrate dbt build + test pipeline.
+
+### Gold Models Created
+
+| Model | Schema | Description |
+|-------|--------|-------------|
+| `daily_llm_costs` | `raw_gold` | Daily cost/usage by model and owner |
+| `model_performance` | `raw_gold` | Latency, error rate, cost efficiency |
+| `owner_comparison` | `raw_gold` | Usage comparison across AN, BACH, HOANG, TUAN |
+| `trace_summary` | `raw_gold` | System trace metrics per service |
+| `service_logs_summary` | `raw_gold` | Logs summary per service per day |
+
+### DAGs Created
+
+| DAG | Schedule | Tasks |
+|-----|----------|-------|
+| `dbt_pipeline` | `@hourly` | dbt_build -> dbt_test |
+
+### Data Pipeline Flow
+
+```
+MinIO (47.131.228.222:9000)
+  -> ingest_minio_to_dwh (Airflow DAG)
+    -> raw.* (Bronze, TEXT columns)
+      -> dbt build
+        -> raw_silver.stg_* (Silver views, typed)
+          -> raw_gold.* (Gold tables, aggregated)
+```
+
+---
+
+## Issues Fixed
+
+### 1. Raw Data Contains String "None"
+Raw TEXT columns contain the literal string `"None"` instead of NULL. `NULLIF(column, 'None')` added to all numeric/timestamp casts in staging models.
+
+### 2. Alpha dbt-core Version
+`dbt-postgres` pulled `dbt-core 2.0.0a1` (Fusion) which does not support postgres adapter. Fixed by pinning `dbt-core<2.0` and `dbt-postgres<2.0`.
+
+### 3. Missing Schema Config
+`+schema: gold` was missing from marts config in `dbt_project.yml`, causing models to land in wrong schema. Re-added with override.
+
+### 4. dbt Not in Scheduler PATH
+BashOperator in Airflow couldn't find `dbt` command. Installed dbt in both webserver and scheduler containers.
+
+---
+
+## Test Commands
+
+### Run dbt Build
+```bash
+sudo chmod -R 777 dbt/
+docker exec agentic-bi-airflow-webserver bash -c "cd /opt/airflow/dbt && dbt build --profiles-dir ."
+```
+
+### Check Gold Tables
+```bash
+docker exec -it agentic-bi-postgres-dwh psql -U dwh_admin -d central_dwh -c "\dt raw_gold.*"
+```
+
+### Query Gold Data
+```bash
+docker exec -it agentic-bi-postgres-dwh psql -U dwh_admin -d central_dwh -c "SELECT * FROM raw_gold.owner_comparison;"
+docker exec -it agentic-bi-postgres-dwh psql -U dwh_admin -d central_dwh -c "SELECT * FROM raw_gold.daily_llm_costs LIMIT 10;"
+docker exec -it agentic-bi-postgres-dwh psql -U dwh_admin -d central_dwh -c "SELECT * FROM raw_gold.model_performance;"
+```
+
+### Trigger dbt_pipeline DAG
+```bash
+docker exec agentic-bi-airflow-webserver airflow dags trigger dbt_pipeline
+```
+
+### Check Pipeline Status
+```bash
+docker exec agentic-bi-airflow-webserver airflow dags list-runs -d dbt_pipeline
+docker exec agentic-bi-airflow-webserver airflow tasks states-for-dag-run dbt_pipeline <run_id>
+```
+
+---
+
+## dbt Build Result (18 steps)
+
+| Step | Type | Status |
+|------|------|--------|
+| 5 staging views | View | PASS |
+| 5 gold tables | Table | PASS |
+| 8 data tests | Test | PASS |
+
+**Total**: 18/18 PASS, 0 ERROR
+
+---
+
+## Files Created / Modified
+
+| File | Action |
+|------|--------|
+| `dbt/models/marts/daily_llm_costs.sql` | Created |
+| `dbt/models/marts/model_performance.sql` | Created |
+| `dbt/models/marts/owner_comparison.sql` | Created |
+| `dbt/models/marts/trace_summary.sql` | Created |
+| `dbt/models/marts/service_logs_summary.sql` | Created |
+| `dbt/models/schema.yml` | Created - data quality tests |
+| `airflow/dags/dbt_pipeline_dag.py` | Created |
+| `docs/report.md` | Modified - added Day 3 summary |
