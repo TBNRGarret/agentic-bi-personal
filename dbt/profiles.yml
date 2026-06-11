@@ -8,5 +8,5 @@ agentic_bi:
       user: dwh_admin
       password: dwh_admin_password
       dbname: central_dwh
-      schema: silver
+      schema: raw
   target: dev

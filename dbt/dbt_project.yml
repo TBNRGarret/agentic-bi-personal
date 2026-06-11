@@ -10,6 +10,7 @@ models:
   agentic_bi:
     staging:
       +materialized: view # View for staging models, don't save data to save storage and speed up development
+      +schema: silver
     marts:
       +materialized: table # Create table for marts models
       +schema: gold
