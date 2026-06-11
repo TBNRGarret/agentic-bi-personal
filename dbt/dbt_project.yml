@@ -1,0 +1,15 @@
+name: 'agentic_bi'
+version: '1.0.0'
+config-version: 2
+profile: 'agentic_bi'
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+models:
+  agentic_bi:
+    staging:
+      +materialized: view # View for staging models, don't save data to save storage and speed up development
+    marts:
+      +materialized: table # Create table for marts models
+      +schema: gold

@@ -1,0 +1,12 @@
+agentic_bi:
+  outputs:
+    dev:
+      type: postgres
+      threads: 4
+      host: postgres-dwh
+      port: 5432
+      user: dwh_admin
+      password: dwh_admin_password
+      dbname: central_dwh
+      schema: silver
+  target: dev
