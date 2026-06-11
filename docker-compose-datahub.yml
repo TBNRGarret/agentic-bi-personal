@@ -164,9 +164,10 @@ services:
       SPRING_KAFKA_PROPERTIES_AUTO_REGISTER_SCHEMAS: "true"
       SPRING_KAFKA_PROPERTIES_USE_LATEST_VERSION: "true"
       USE_CONFLUENT_SCHEMA_REGISTRY: "false"
+      JAVA_OPTS: ${DATAHUB_UPGRADE_JAVA_OPTS:--Xms256m -Xmx512m}
     restart: "no"
-    mem_limit: 768m
-    mem_reservation: 384m
+    mem_limit: 1024m
+    mem_reservation: 512m
     networks:
       - datahub-vps
 
