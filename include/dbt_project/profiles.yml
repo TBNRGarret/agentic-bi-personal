@@ -6,5 +6,5 @@ dbt_project:
       port: "{{ env_var('AGENTIC_DBT_CLICKHOUSE_PORT', '9000') | int }}"
       user: "{{ env_var('AGENTIC_CLICKHOUSE_USER', 'default') }}"
       password: "{{ env_var('AGENTIC_CLICKHOUSE_PASSWORD', 'securepassword') }}"
-      schema: "{{ env_var('AGENTIC_DBT_SCHEMA', 'agentic_bi') }}"
+      schema: "{{ env_var('AGENTIC_DBT_SCHEMA', 'vsf_mart') }}"
   target: dev

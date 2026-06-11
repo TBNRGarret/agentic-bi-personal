@@ -1,4 +1,4 @@
-# Verify the local Agentic BI stack and trigger the smoke DAG.
+# Verify the local Agentic BI stack and trigger the smoke + central DWH DAGs.
 
 $ErrorActionPreference = "Stop"
 
@@ -64,25 +64,23 @@ function Convert-AirflowCliJson {
     return ($jsonLines -join "`n") | ConvertFrom-Json
 }
 
-try {
-    $scheduler = Get-AgenticAirflowContainer "scheduler"
-    $airflowUrl = Get-AgenticAirflowWebUrl
+function Invoke-AirflowDagAndWait {
+    param(
+        [string]$DagId,
+        [string]$RunIdPrefix
+    )
 
-    Invoke-HealthCheck "Airflow API server" $airflowUrl
-    Invoke-HealthCheck "Agentic ClickHouse" "http://localhost:18123/ping"
-    Invoke-HealthCheck "Langfuse API" "http://localhost:3000/api/public/health"
-
-    $runId = "manual__verify_$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
-    docker exec $scheduler airflow dags unpause smoke_dag | Out-Null
-    docker exec $scheduler airflow dags trigger smoke_dag --run-id $runId
+    $runId = "$RunIdPrefix$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+    docker exec $scheduler airflow dags unpause $DagId | Out-Null
+    docker exec $scheduler airflow dags trigger $DagId --run-id $runId
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to trigger smoke_dag"
+        throw "Failed to trigger $DagId"
     }
 
     $state = $null
-    for ($i = 0; $i -lt 30; $i++) {
+    for ($i = 0; $i -lt 60; $i++) {
         Start-Sleep -Seconds 2
-        $runsOutput = docker exec $scheduler airflow dags list-runs smoke_dag -o json
+        $runsOutput = docker exec $scheduler airflow dags list-runs $DagId -o json
         $runs = Convert-AirflowCliJson $runsOutput
         $run = $runs | Where-Object { $_.run_id -eq $runId } | Select-Object -First 1
         if ($run) {
@@ -93,13 +91,53 @@ try {
         }
     }
 
+    docker exec $scheduler airflow tasks states-for-dag-run $DagId $runId -o table
     if ($state -ne "success") {
-        docker exec $scheduler airflow tasks states-for-dag-run smoke_dag $runId -o table
-        throw "smoke_dag finished with state '$state'"
+        throw "$DagId finished with state '$state'"
     }
 
-    docker exec $scheduler airflow tasks states-for-dag-run smoke_dag $runId -o table
-    Write-Host "[OK] smoke_dag completed successfully." -ForegroundColor Green
+    Write-Host "[OK] $DagId completed successfully ($runId)." -ForegroundColor Green
+    return $runId
+}
+
+function Invoke-ClickHouseQuery {
+    param([string]$Query)
+
+    $password = $env:AGENTIC_CLICKHOUSE_PASSWORD
+    if (-not $password) {
+        $password = "securepassword"
+    }
+
+    $output = docker exec agentic_clickhouse clickhouse-client --password $password --query $Query
+    if ($LASTEXITCODE -ne 0) {
+        throw "ClickHouse query failed: $Query"
+    }
+    return $output
+}
+
+try {
+    $scheduler = Get-AgenticAirflowContainer "scheduler"
+    $airflowUrl = Get-AgenticAirflowWebUrl
+
+    Invoke-HealthCheck "Airflow API server" $airflowUrl
+    Invoke-HealthCheck "Agentic ClickHouse" "http://localhost:18123/ping"
+    Invoke-HealthCheck "MinIO API" "http://localhost:19001/minio/health/live"
+    Invoke-HealthCheck "Langfuse API" "http://localhost:3000/api/public/health"
+
+    Invoke-AirflowDagAndWait "smoke_dag" "manual__smoke_verify_"
+    Invoke-AirflowDagAndWait "agentic_bi_pipeline" "manual__agentic_bi_verify_"
+
+    $batchCount = [int](Invoke-ClickHouseQuery "SELECT count() FROM vsf_raw.raw_ingestion_batches WHERE status = 'success'")
+    if ($batchCount -lt 1) {
+        throw "No successful raw ingestion batches found in vsf_raw.raw_ingestion_batches"
+    }
+    Write-Host "[OK] Successful raw ingestion batches: $batchCount" -ForegroundColor Green
+
+    $goldCount = [int](Invoke-ClickHouseQuery "SELECT count() FROM vsf_mart.gold_app_daily_cost")
+    if ($goldCount -lt 1) {
+        throw "No rows found in vsf_mart.gold_app_daily_cost"
+    }
+    Write-Host "[OK] vsf_mart.gold_app_daily_cost rows: $goldCount" -ForegroundColor Green
 }
 finally {
     Pop-Location

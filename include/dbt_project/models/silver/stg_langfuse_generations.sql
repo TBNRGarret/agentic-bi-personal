@@ -18,5 +18,7 @@ SELECT
     duration_ms,
     status,
     raw_payload,
+    source_app_id,
+    batch_id,
     ingested_at
 FROM {{ source('raw', 'langfuse_generations') }}

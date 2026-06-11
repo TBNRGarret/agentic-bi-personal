@@ -12,8 +12,8 @@ psycopg2-binary>=2.9,<3.0
 # dbt with ClickHouse adapter (for S1.3)
 dbt-clickhouse>=1.8,<2.0
 
-# DataHub Airflow 3 lineage plugin (for E2)
-acryl-datahub-airflow-plugin
+# DataHub CLI and dependencies
+acryl-datahub
 
 # DataHub Python client dependency (for E2/E3)
 httpx>=0.27,<1.0

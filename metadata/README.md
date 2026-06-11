@@ -4,7 +4,7 @@
 
 | Tiêu chí | DataHub ✅ | OpenMetadata |
 |---------|-----------|-------------|
-| Airflow 3 support | Native plugin (`acryl-datahub-airflow-plugin`) | Chưa chính thức |
+| Airflow 3 support | Có plugin native, giữ optional để tránh làm nặng Astro runtime | Chưa chính thức |
 | dbt connector | `datahub ingest -c recipe.yml` | Có nhưng phức tạp hơn |
 | Local deploy | `datahub docker quickstart` — 1 lệnh | Nhiều config tay |
 | API cho Agent | GraphQL — mạnh, linh hoạt | REST API |
@@ -15,27 +15,30 @@
 ## Kiến trúc
 
 ```
-Airflow 3 DAG
-     │  (task events: START/COMPLETE/FAIL)
-     ▼
-[acryl-datahub-airflow-plugin]  ← intercepts OpenLineage events
-     │
+Airflow 3 DAG + dbt build
+     │  (manifest/catalog/run_results + ClickHouse schema)
+      ▼
+[DataHub ingestion recipes]
      │  REST emit to DataHub GMS
      ▼
-[DataHub GMS :18080]            ← stores lineage as Dataset → DataJob edges
+[DataHub GMS :28080]            ← stores lineage as Dataset → DataJob edges
      │
      ▼
 [DataHub UI :9002]              ← lineage graph visible
 [DataHub GraphQL API]           ← Agent queries at runtime
 ```
 
+Ghi chú: `acryl-datahub-airflow-plugin` có thể được thêm lại sau để emit Airflow task events trực tiếp, nhưng không nằm trong `requirements.txt` của Astro runtime vì dependency tree lớn và dễ làm chậm/flaky quá trình build local.
+
 ## Ports & Credentials
 
 | Service | URL | Credential |
 |---------|-----|------------|
 | DataHub UI | http://localhost:9002 | `datahub` / `datahub` |
-| DataHub GMS API | http://localhost:18080 | (token nếu cần) |
+| DataHub GMS API | http://localhost:28080 | (token nếu cần) |
 | ClickHouse (host) | http://localhost:18123 | `default` / `securepassword` |
+| MinIO API | http://localhost:19001 | `minioadmin` / `minioadmin` |
+| MinIO Console | http://localhost:19002 | `minioadmin` / `minioadmin` |
 
 ## Cách vận hành
 
@@ -60,14 +63,19 @@ Script này tự động:
 3. Ingest ClickHouse physical schema vào DataHub
 
 ### 4. Verify lineage
-Mở http://localhost:9002, tìm `fct_llm_interactions` → tab **Lineage**.
+Mở http://localhost:9002, tìm `gold_app_daily_cost` hoặc `fct_llm_interactions` → tab **Lineage**.
+
+DataHub ingestion hiện đọc các ClickHouse schemas:
+- `vsf_raw`
+- `vsf_stg`
+- `vsf_mart`
 
 ## Python Client (cho Agent)
 ```python
 from metadata.client import DataHubClient
 
 client = DataHubClient()
-tables = client.list_tables()
+tables = client.list_tables(schema="vsf_mart")
 columns = client.get_columns(tables[0]["urn"])
 context = client.get_schema_context_for_question("Total tokens per model?")
 ```

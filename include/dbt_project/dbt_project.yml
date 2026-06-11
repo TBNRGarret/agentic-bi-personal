@@ -19,7 +19,25 @@ models:
   dbt_project:
     silver:
       +materialized: table
+      +schema: vsf_stg
       +engine: ReplacingMergeTree()
     gold:
       +materialized: table
+      +schema: vsf_mart
       +engine: ReplacingMergeTree()
+
+seeds:
+  dbt_project:
+    +schema: vsf_mart
+    source_apps:
+      +column_types:
+        source_app_id: String
+        source_app_name: String
+        domain: String
+        environment: String
+        owner_team: String
+        source_dwh_type: String
+        source_dwh_name: String
+        is_active: UInt8
+        created_at: "DateTime64(6, 'UTC')"
+        updated_at: "DateTime64(6, 'UTC')"

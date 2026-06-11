@@ -44,6 +44,8 @@ try {
     Write-Host "Agentic BI local stack started." -ForegroundColor Green
     Write-Host "Airflow UI: $airflowUrl" -ForegroundColor Cyan
     Write-Host "Agentic ClickHouse HTTP: http://localhost:18123/ping" -ForegroundColor Cyan
+    Write-Host "MinIO API: http://localhost:19001" -ForegroundColor Cyan
+    Write-Host "MinIO Console: http://localhost:19002" -ForegroundColor Cyan
     Write-Host "Run verification: .\scripts\verify-system.ps1" -ForegroundColor Cyan
 }
 finally {

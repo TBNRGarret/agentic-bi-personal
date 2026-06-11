@@ -15,7 +15,7 @@ if ($datahubNet) {
     $networks += $datahubNet
     Write-Host "Auto-detected DataHub network: $datahubNet" -ForegroundColor Green
 } else {
-    Write-Host "No DataHub network found — skipping DataHub bridge" -ForegroundColor Yellow
+    Write-Host "No DataHub network found - skipping DataHub bridge" -ForegroundColor Yellow
 }
 
 # Find Airflow containers created by this Astro project.

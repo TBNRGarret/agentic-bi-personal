@@ -13,5 +13,7 @@ SELECT
     severity,
     message,
     raw_payload,
+    source_app_id,
+    batch_id,
     ingested_at
 FROM {{ source('raw', 'signoz_logs') }}

@@ -14,6 +14,8 @@
 # Usage (from repo root):
 #   datahub ingest -c metadata/recipes/dbt_recipe.yml
 
+pipeline_name: "agentic_bi_dbt"
+
 source:
   type: dbt
   config:
@@ -25,12 +27,7 @@ source:
 
     target_platform: "clickhouse"
     target_platform_instance: "agentic_clickhouse"
-    load_schemas: true
 
-    node_type_pattern:
-      allow:
-        - "model"
-        - "source"
 
     stateful_ingestion:
       enabled: true
@@ -39,4 +36,4 @@ source:
 sink:
   type: datahub-rest
   config:
-    server: "http://localhost:18080"
+    server: "http://localhost:28080"

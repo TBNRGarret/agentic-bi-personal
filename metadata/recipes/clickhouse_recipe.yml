@@ -15,8 +15,9 @@ source:
     password: "securepassword"
     database_pattern:
       allow:
-        - "agentic_bi"
-        - "raw"
+        - "vsf_raw"
+        - "vsf_stg"
+        - "vsf_mart"
     include_tables: true
     include_views: true
     platform_instance: "agentic_clickhouse"
@@ -24,4 +25,4 @@ source:
 sink:
   type: datahub-rest
   config:
-    server: "http://localhost:18080"
+    server: "http://localhost:28080"

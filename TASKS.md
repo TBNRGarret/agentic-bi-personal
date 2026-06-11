@@ -8,6 +8,17 @@ user-story-sized tasks with acceptance criteria. Tasks are sized for a 4-enginee
 
 ---
 
+## Current Central DWH Hardening — 2026-06-10
+
+- [x] Add local MinIO raw landing service and JSONL export contract
+- [x] Add `vsf_raw`, `vsf_stg`, `vsf_mart` ClickHouse schema contract
+- [x] Rework Airflow DAG code path from direct Postgres load to MinIO batch load
+- [x] Add dbt seed/model contract for `source_apps`, `staging_llm_generations`, and `gold_app_daily_cost`
+- [x] Update DataHub client/recipes to target `vsf_mart` and ingest `vsf_*` schemas
+- [ ] Run live Docker/Airflow/dbt/DataHub end-to-end verification and attach final row-count evidence
+
+---
+
 ## Sprint 1 — Data Foundation & Metadata (Week 1–2)
 
 ### Epic 1 — Sample Data Pipeline (Raw → Gold)

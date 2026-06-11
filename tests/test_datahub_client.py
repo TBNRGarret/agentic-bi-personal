@@ -22,7 +22,7 @@ SAMPLE_SEARCH_RESPONSE = {
             "searchResults": [
                 {
                     "entity": {
-                        "urn": "urn:li:dataset:(urn:li:dataPlatform:clickhouse,agentic_bi.fct_llm_interactions,PROD)",
+                        "urn": "urn:li:dataset:(urn:li:dataPlatform:clickhouse,vsf_mart.fct_llm_interactions,PROD)",
                         "name": "fct_llm_interactions",
                         "platform": {"name": "clickhouse"},
                         "editableProperties": None,
@@ -33,8 +33,8 @@ SAMPLE_SEARCH_RESPONSE = {
                 },
                 {
                     "entity": {
-                        "urn": "urn:li:dataset:(urn:li:dataPlatform:clickhouse,agentic_bi.agg_daily_llm_metrics,PROD)",
-                        "name": "agg_daily_llm_metrics",
+                        "urn": "urn:li:dataset:(urn:li:dataPlatform:clickhouse,vsf_mart.gold_app_daily_cost,PROD)",
+                        "name": "gold_app_daily_cost",
                         "platform": {"name": "clickhouse"},
                         "editableProperties": {"description": "Daily aggregated LLM metrics"},
                         "properties": {"description": ""},
@@ -72,8 +72,8 @@ SAMPLE_LINEAGE_RESPONSE = {
     "data": {
         "searchAcrossLineage": {
             "searchResults": [
-                {"entity": {"urn": "urn:li:dataset:(...,agentic_bi.stg_user_interactions,PROD)", "name": "stg_user_interactions"}},
-                {"entity": {"urn": "urn:li:dataset:(...,raw.user_interactions,PROD)", "name": "user_interactions"}},
+                {"entity": {"urn": "urn:li:dataset:(...,vsf_stg.stg_user_interactions,PROD)", "name": "stg_user_interactions"}},
+                {"entity": {"urn": "urn:li:dataset:(...,vsf_raw.user_interactions,PROD)", "name": "user_interactions"}},
             ]
         }
     }
@@ -97,19 +97,28 @@ def _mock_httpx_post(response_data: dict):
 # ---------------------------------------------------------------------------
 
 class TestListTables:
+    def test_list_tables_defaults_to_vsf_mart_schema(self):
+        import inspect
+
+        from metadata.client.datahub_client import DataHubClient
+
+        signature = inspect.signature(DataHubClient.list_tables)
+
+        assert signature.parameters["schema"].default == "vsf_mart"
+
     @patch("metadata.client.datahub_client.httpx.post")
     def test_list_tables_returns_correct_structure(self, mock_post):
         mock_post.return_value = _mock_httpx_post(SAMPLE_SEARCH_RESPONSE)
 
         from metadata.client.datahub_client import DataHubClient
         client = DataHubClient()
-        tables = client.list_tables(platform="clickhouse", schema="agentic_bi")
+        tables = client.list_tables(platform="clickhouse", schema="vsf_mart")
 
         assert len(tables) == 2
         assert tables[0]["name"] == "fct_llm_interactions"
         assert tables[0]["platform"] == "clickhouse"
         assert "urn" in tables[0]
-        assert tables[1]["name"] == "agg_daily_llm_metrics"
+        assert tables[1]["name"] == "gold_app_daily_cost"
 
     @patch("metadata.client.datahub_client.httpx.post")
     def test_list_tables_uses_editable_description_first(self, mock_post):
@@ -143,7 +152,7 @@ class TestGetColumns:
 
         from metadata.client.datahub_client import DataHubClient
         client = DataHubClient()
-        columns = client.get_columns("urn:li:dataset:(urn:li:dataPlatform:clickhouse,agentic_bi.fct_llm_interactions,PROD)")
+        columns = client.get_columns("urn:li:dataset:(urn:li:dataPlatform:clickhouse,vsf_mart.fct_llm_interactions,PROD)")
 
         assert len(columns) == 4
         assert columns[0]["name"] == "interaction_id"
@@ -198,7 +207,7 @@ class TestGetLineage:
         from metadata.client.datahub_client import DataHubClient
         client = DataHubClient()
         lineage = client.get_lineage(
-            "urn:li:dataset:(urn:li:dataPlatform:clickhouse,agentic_bi.fct_llm_interactions,PROD)"
+            "urn:li:dataset:(urn:li:dataPlatform:clickhouse,vsf_mart.fct_llm_interactions,PROD)"
         )
 
         assert lineage["entity"] == "fct_llm_interactions"

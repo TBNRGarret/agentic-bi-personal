@@ -13,11 +13,45 @@ models:
         description: "User prompt text"
         tests:
           - not_null
+      - name: source_app_id
+        description: "Source application/member identifier"
+        tests:
+          - not_null
       - name: model
         description: "LLM model name used"
         tests:
           - not_null
       - name: total_tokens
         description: "Total token count"
+        tests:
+          - not_null
+      - name: total_cost_usd
+        description: "Total estimated cost for the interaction in USD"
+        tests:
+          - not_null
+
+  - name: staging_llm_generations
+    description: "Proposal-aligned silver LLM generation table enriched with source app metadata"
+    columns:
+      - name: generation_id
+        tests:
+          - not_null
+      - name: source_app_id
+        tests:
+          - not_null
+      - name: provider
+        tests:
+          - not_null
+
+  - name: gold_app_daily_cost
+    description: "Daily cost and quality mart by source app, provider, and model"
+    columns:
+      - name: date
+        tests:
+          - not_null
+      - name: source_app_id
+        tests:
+          - not_null
+      - name: request_count
         tests:
           - not_null

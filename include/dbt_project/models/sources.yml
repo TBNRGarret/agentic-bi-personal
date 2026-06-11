@@ -2,7 +2,7 @@ version: 2
 
 sources:
   - name: raw
-    database: raw
+    database: vsf_raw
     tables:
       - name: signoz_logs
       - name: signoz_traces

@@ -1,0 +1,19 @@
+source:
+  type: clickhouse
+  config:
+    host_port: "agentic_clickhouse:8123"
+    username: "default"
+    password: "securepassword"
+    database_pattern:
+      allow:
+        - "vsf_raw"
+        - "vsf_stg"
+        - "vsf_mart"
+    include_tables: true
+    include_views: true
+    platform_instance: "agentic_clickhouse"
+
+sink:
+  type: datahub-rest
+  config:
+    server: "http://datahub-gms:8080"

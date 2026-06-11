@@ -1,0 +1,5 @@
+source_app_id,source_app_name,domain,environment,owner_team,source_dwh_type,source_dwh_name,is_active,created_at,updated_at
+hoangvl_ai_chat,HoangVL AI Chat,observability,dev,hoangvl,postgres,sprint1_postgres_dwh,1,2026-06-10 00:00:00.000000,2026-06-10 00:00:00.000000
+member_2_ai_chat,Member 2 AI Chat,finance,dev,member_2,postgres,pending_local_dwh,0,2026-06-10 00:00:00.000000,2026-06-10 00:00:00.000000
+member_3_ai_chat,Member 3 AI Chat,healthcare,dev,member_3,postgres,pending_local_dwh,0,2026-06-10 00:00:00.000000,2026-06-10 00:00:00.000000
+member_4_ai_chat,Member 4 AI Chat,education,dev,member_4,postgres,pending_local_dwh,0,2026-06-10 00:00:00.000000,2026-06-10 00:00:00.000000

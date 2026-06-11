@@ -8,6 +8,50 @@
 
 ---
 
+## Central DWH Local Runbook
+
+The current data-foundation slice follows `docs/dwh-design-proposal.md`:
+
+```text
+Sprint 1 Postgres DWH
+  -> export JSONL batches to MinIO
+  -> Airflow loads vsf_raw
+  -> dbt builds vsf_stg and vsf_mart
+  -> DataHub ingests schema, lineage, and freshness metadata
+```
+
+### Ports
+
+| Service | URL |
+|---------|-----|
+| Airflow UI | discovered by `.\scripts\start-system.ps1` |
+| Agentic ClickHouse HTTP | http://localhost:18123/ping |
+| Agentic ClickHouse native | localhost:19000 |
+| MinIO API | http://localhost:19001 |
+| MinIO Console | http://localhost:19002 |
+| DataHub UI | http://localhost:9002 |
+| DataHub GMS API | http://localhost:28080 |
+
+### Run Order
+
+Run these from `agentic-bi\`:
+
+```powershell
+.\scripts\start-system.ps1
+python .\scripts\seed_dwh.py
+python .\scripts\export_dwh_to_minio.py
+docker exec <agentic-bi-scheduler-container> airflow dags trigger agentic_bi_pipeline
+.\metadata\scripts\run-ingestion.ps1
+.\scripts\verify-system.ps1
+```
+
+The central warehouse contract is:
+- Raw/audit: `vsf_raw.raw_ingestion_batches`, `vsf_raw.langfuse_generations`, `vsf_raw.user_interactions`, `vsf_raw.signoz_*`
+- Silver: `vsf_stg.staging_llm_generations` and supporting `stg_*` models
+- Gold: `vsf_mart.fct_llm_interactions`, `vsf_mart.gold_app_daily_cost`, `vsf_mart.data_quality_results`
+
+---
+
 ## Sprint 1 — Data Foundation & Metadata (Week 1–2)
 
 ---

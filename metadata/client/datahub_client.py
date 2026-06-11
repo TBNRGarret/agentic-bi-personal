@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 
 
-DATAHUB_GMS_URL = os.getenv("DATAHUB_GMS_URL", "http://localhost:18080")
+DATAHUB_GMS_URL = os.getenv("DATAHUB_GMS_URL", "http://localhost:28080")
 DATAHUB_TOKEN = os.getenv("DATAHUB_TOKEN", "")
 
 
@@ -63,7 +63,7 @@ class DataHubClient:
     def list_tables(
         self,
         platform: str = "clickhouse",
-        schema: str = "agentic_bi",
+        schema: str = "vsf_mart",
     ) -> list[dict]:
         """
         List all datasets for a given platform and schema.
@@ -239,6 +239,7 @@ class DataHubClient:
         self,
         question: str,
         platform: str = "clickhouse",
+        schema: str = "vsf_mart",
     ) -> str:
         """
         Build a formatted schema context string for the most relevant
@@ -246,7 +247,7 @@ class DataHubClient:
 
         Used by the Agent (Epic 3) for prompt injection.
         """
-        tables = self.list_tables(platform=platform)
+        tables = self.list_tables(platform=platform, schema=schema)
 
         # Keyword-based relevance scoring
         # (upgrade to embedding similarity in a future iteration)

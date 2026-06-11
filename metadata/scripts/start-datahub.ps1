@@ -21,17 +21,20 @@ try {
     # ------------------------------------------------------------------ #
     if (-not (Get-Command datahub -ErrorAction SilentlyContinue)) {
         Write-Host "[INSTALL] Installing DataHub CLI (acryl-datahub)..." -ForegroundColor Yellow
-        pip install 'acryl-datahub[quickstart]'
+        pip install 'acryl-datahub'
         if ($LASTEXITCODE -ne 0) { throw "pip install acryl-datahub failed." }
     }
 
-    $dhVersion = datahub version 2>&1 | Select-Object -First 1
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $dhVersion = datahub version 2>$null | Select-Object -First 1
+    $ErrorActionPreference = $oldEap
     Write-Host "[INFO] DataHub CLI version: $dhVersion" -ForegroundColor Cyan
 
     # ------------------------------------------------------------------ #
     # 2. JVM Tuning — Giới hạn heap cho từng service tránh OOM
     # ------------------------------------------------------------------ #
-    $env:DATAHUB_MAPPED_GMS_PORT = "18080"
+    $env:DATAHUB_MAPPED_GMS_PORT = "28080"
 
     # Elasticsearch — 1 GB heap
     $env:ES_JAVA_OPTS = "-Xms1g -Xmx1g"
@@ -51,8 +54,12 @@ try {
     # ------------------------------------------------------------------ #
     # 3. Khởi động DataHub Docker Quickstart
     # ------------------------------------------------------------------ #
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     datahub docker quickstart
-    if ($LASTEXITCODE -ne 0) { throw "datahub docker quickstart failed." }
+    $errCode = $LASTEXITCODE
+    $ErrorActionPreference = $oldEap
+    if ($errCode -ne 0) { throw "datahub docker quickstart failed with exit code $errCode." }
 
     # ------------------------------------------------------------------ #
     # 4. Detect DataHub Docker network (có thể là datahub_default hoặc datahub_network)
@@ -101,7 +108,7 @@ try {
     Write-Host " DataHub started successfully!" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Green
     Write-Host "  UI:      http://localhost:9002   (datahub/datahub)" -ForegroundColor Cyan
-    Write-Host "  GMS API: http://localhost:18080" -ForegroundColor Cyan
+    Write-Host "  GMS API: http://localhost:28080" -ForegroundColor Cyan
     Write-Host "  Network: $datahubNet" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Next steps:" -ForegroundColor Yellow
