@@ -1,0 +1,4 @@
+# Custom static credentials for DataHub Frontend authentication
+# Format: username:password
+admin:admin
+datahub:datahub

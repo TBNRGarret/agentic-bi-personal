@@ -266,6 +266,7 @@ services:
       - "${DATAHUB_MAPPED_FRONTEND_PORT:-9002}:9002"
     volumes:
       - datahub_plugins:/etc/datahub/plugins
+      - ./user.props:/datahub-frontend/conf/user.props
     restart: unless-stopped
     mem_limit: 768m
     mem_reservation: 384m
