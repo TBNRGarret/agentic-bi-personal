@@ -135,6 +135,7 @@ services:
       - ./airflow/logs:/opt/airflow/logs
       - ./scripts:/opt/airflow/scripts
       - ./infra/airflow/requirements.txt:/opt/airflow/requirements.txt
+      - ./dbt:/opt/airflow/dbt
     entrypoint:
       - /bin/bash
       - -c
@@ -158,6 +159,7 @@ services:
       - ./airflow/logs:/opt/airflow/logs
       - ./scripts:/opt/airflow/scripts
       - ./infra/airflow/requirements.txt:/opt/airflow/requirements.txt
+      - ./dbt:/opt/airflow/dbt
     entrypoint:
       - /bin/bash
       - -c
