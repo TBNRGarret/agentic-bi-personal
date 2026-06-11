@@ -1,0 +1,5 @@
+apache-airflow-providers-amazon
+boto3
+pyarrow
+smart-open
+psycopg2-binary
