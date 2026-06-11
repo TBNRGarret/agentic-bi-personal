@@ -93,7 +93,80 @@ services:
     ports:
       - "3000:3000"
 
+  # AIRFLOW SERVICES
+  postgres-airflow:
+    image: postgres:16-alpine
+    container_name: agentic-bi-postgres-airflow
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow_password
+      TZ: UTC
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_airflow_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  airflow-webserver:
+    image: apache/airflow:2.10.0
+    container_name: agentic-bi-airflow-webserver
+    restart: unless-stopped
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+    environment: &airflow_env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow_password@postgres-airflow:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__FERNET_KEY: ""
+      AIRFLOW_CONN_MINIO_S3: '{"conn_type": "aws", "login": "minio_admin", "password": "minio_admin_password", "extra": {"endpoint_url": "http://47.131.228.222:9000", "region_name": "us-east-1"}}'
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./airflow/logs:/opt/airflow/logs
+      - ./scripts:/opt/airflow/scripts
+      - ./infra/airflow/requirements.txt:/opt/airflow/requirements.txt
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        pip install -r /opt/airflow/requirements.txt --quiet
+        airflow db init
+        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com 2>/dev/null || true
+        airflow webserver
+
+  airflow-scheduler:
+    image: apache/airflow:2.10.0
+    container_name: agentic-bi-airflow-scheduler
+    restart: unless-stopped
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+    environment: *airflow_env
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./airflow/logs:/opt/airflow/logs
+      - ./scripts:/opt/airflow/scripts
+      - ./infra/airflow/requirements.txt:/opt/airflow/requirements.txt
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        pip install -r /opt/airflow/requirements.txt --quiet
+        airflow scheduler
+
 volumes:
   postgres_dwh_data:
   minio_data:
   metabase_db_data:
+  postgres_airflow_data:
