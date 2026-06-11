@@ -3,3 +3,4 @@ boto3
 pyarrow
 smart-open
 psycopg2-binary
+dbt-postgres
