@@ -15,7 +15,7 @@ user-story-sized tasks with acceptance criteria. Tasks are sized for a 4-enginee
 - [x] Rework Airflow DAG code path from direct Postgres load to MinIO batch load
 - [x] Add dbt seed/model contract for `source_apps`, `staging_llm_generations`, and `gold_app_daily_cost`
 - [x] Update DataHub client/recipes to target `vsf_mart` and ingest `vsf_*` schemas
-- [ ] Run live Docker/Airflow/dbt/DataHub end-to-end verification and attach final row-count evidence
+- [x] Run live Docker/Airflow/dbt/DataHub end-to-end verification and attach final row-count evidence
 
 ---
 
@@ -61,32 +61,32 @@ user-story-sized tasks with acceptance criteria. Tasks are sized for a 4-enginee
 
 ### Epic 2 — Metadata Store
 
-- [ ] **S2.1 — Evaluate & choose a metadata store**
+- [x] **S2.1 — Evaluate & choose a metadata store**
   - **Assignee**: _______
   - Compare DataHub / OpenMetadata / alternatives on: Airflow 3 + dbt connector support, local deploy simplicity, API quality
   - **AC**: Short written decision doc with the chosen tool and rationale.
 
-- [ ] **S2.2 — Deploy the metadata store locally** 🔗 (needs S2.1)
+- [x] **S2.2 — Deploy the metadata store locally** 🔗 (needs S2.1)
   - **Assignee**: _______
   - Add it to the local stack; bring it online reproducibly
   - **AC**: Metadata store UI + API reachable locally.
 
-- [ ] **S2.3 — Ingest dbt schema & lineage** 🔗 (needs S2.2, S1.3)
+- [x] **S2.3 — Ingest dbt schema & lineage** 🔗 (needs S2.2, S1.3)
   - **Assignee**: _______
   - Wire dbt `manifest.json` / `catalog.json` ingestion
   - **AC**: Schema and column metadata for gold models visible via the store's API.
 
-- [ ] **S2.4 — Ingest Airflow lineage & run history** 🔗 (needs S2.2, S1.4)
+- [x] **S2.4 — Ingest Airflow lineage & run history** 🔗 (needs S2.2, S1.4)
   - **Assignee**: _______
   - Emit/ingest Airflow 3 lineage events and pipeline run/freshness history
   - **AC**: Source→transform→gold lineage visible; freshness/run history queryable.
 
-- [ ] **S2.5 — Metadata API contract for the agent** 🔗 (needs S2.3, S2.4)
+- [x] **S2.5 — Metadata API contract for the agent** 🔗 (needs S2.3, S2.4)
   - **Assignee**: _______
   - Document the query path the agent will use at runtime ("what tables, what columns, last updated, lineage")
   - **AC**: Documented API/SDK calls answering those four questions; example requests captured.
 
-- [ ] **S2.6 — Epic 2 deliverable verification**
+- [x] **S2.6 — Epic 2 deliverable verification**
   - **Assignee**: _______
   - **AC**: Schema, lineage, freshness queryable via API; decision documented.
 
