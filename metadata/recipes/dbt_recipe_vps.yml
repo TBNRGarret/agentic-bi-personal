@@ -1,0 +1,23 @@
+# DataHub ingestion recipe — dbt project metadata (VPS version).
+# Uses dbt artifacts copied from /tmp/dbt_target in the Airflow container.
+
+pipeline_name: "agentic_bi_dbt"
+
+source:
+  type: dbt
+  config:
+    manifest_path: "/tmp/dbt_target_copy/manifest.json"
+    run_results_paths:
+      - "/tmp/dbt_target_copy/run_results.json"
+
+    target_platform: "clickhouse"
+    target_platform_instance: "agentic_clickhouse"
+
+    stateful_ingestion:
+      enabled: true
+      remove_stale_metadata: true
+
+sink:
+  type: datahub-rest
+  config:
+    server: "http://localhost:28080"
