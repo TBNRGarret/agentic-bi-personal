@@ -3,9 +3,78 @@ version: 2
 sources:
   - name: raw
     database: vsf_raw
+    description: "Canonical MinIO JSONL raw landing tables loaded by the agentic_bi_pipeline DAG."
+    loaded_at_field: ingested_at
+    freshness:
+      warn_after: {count: 48, period: hour}
+      error_after: {count: 72, period: hour}
     tables:
       - name: signoz_logs
+        description: "Raw application log events exported from the local MinIO telemetry batch."
+        columns:
+          - name: log_id
+            description: "Stable log event identifier."
+          - name: trace_id
+            description: "Trace identifier used to join logs to LLM interactions."
+          - name: severity
+            description: "Log severity such as INFO, WARN, or ERROR."
+          - name: source_app_id
+            description: "Source application that produced this log event."
+          - name: batch_id
+            description: "MinIO raw batch UUID."
       - name: signoz_traces
+        description: "Raw trace spans for application and agent request execution."
+        columns:
+          - name: trace_id
+            description: "Trace identifier used across logs, traces, and interactions."
+          - name: span_id
+            description: "Span identifier inside the trace."
+          - name: duration_ms
+            description: "Span duration in milliseconds."
+          - name: source_app_id
+            description: "Source application that produced this trace event."
+          - name: batch_id
+            description: "MinIO raw batch UUID."
       - name: signoz_metrics
+        description: "Raw metric events for request volume and status tracking."
+        columns:
+          - name: metric_id
+            description: "Stable metric event identifier."
+          - name: metric_name
+            description: "Metric name, for example chat.turns."
+          - name: metric_value
+            description: "Metric numeric value."
+          - name: source_app_id
+            description: "Source application that produced this metric event."
+          - name: batch_id
+            description: "MinIO raw batch UUID."
       - name: langfuse_generations
+        description: "Raw LLM generation telemetry including tokens, cost, latency, prompt, and response."
+        columns:
+          - name: generation_id
+            description: "Stable generation identifier."
+          - name: trace_id
+            description: "Trace identifier linked to user interaction and observability events."
+          - name: model
+            description: "LLM model used for the generation."
+          - name: estimated_cost_usd
+            description: "Estimated generation cost in USD."
+          - name: source_app_id
+            description: "Source application that produced this generation."
+          - name: batch_id
+            description: "MinIO raw batch UUID."
       - name: user_interactions
+        description: "Raw end-user agent interactions with prompt, response, status, tokens, cost, and timing."
+        columns:
+          - name: interaction_id
+            description: "Stable user interaction identifier."
+          - name: langfuse_trace_id
+            description: "Trace identifier linking the interaction to Langfuse and SigNoz telemetry."
+          - name: user_id
+            description: "Raw local demo user identifier, hashed in staging."
+          - name: status
+            description: "Interaction status, expected success or failed."
+          - name: source_app_id
+            description: "Source application that produced this interaction."
+          - name: batch_id
+            description: "MinIO raw batch UUID."

@@ -1,11 +1,9 @@
 """
-Smoke DAG - S1.1 Infrastructure Verification.
+Smoke DAG - local Sprint 1 infrastructure verification.
 
-Verifies connectivity to:
-  1. Agentic BI ClickHouse (owned by this repo for gold tables)
-  2. PostgreSQL DWH (reused from sprint-1 staging data)
-  3. Langfuse API (reused from sprint-1 LLM traces)
-  4. SigNoz ClickHouse (reused from sprint-1 APM telemetry)
+Verifies repo-owned services only:
+  1. Agentic BI ClickHouse
+  2. MinIO raw object store
 """
 
 from datetime import datetime
@@ -18,24 +16,16 @@ AGENTIC_CLICKHOUSE_HOST = os.getenv("AGENTIC_CLICKHOUSE_HOST", "agentic_clickhou
 AGENTIC_CLICKHOUSE_PORT = int(os.getenv("AGENTIC_CLICKHOUSE_PORT", "8123"))
 AGENTIC_CLICKHOUSE_USER = os.getenv("AGENTIC_CLICKHOUSE_USER", "default")
 AGENTIC_CLICKHOUSE_PASSWORD = os.getenv("AGENTIC_CLICKHOUSE_PASSWORD", "securepassword")
-
-POSTGRES_DWH_HOST = os.getenv("POSTGRES_DWH_HOST", "postgres_dwh")
-POSTGRES_DWH_PORT = int(os.getenv("POSTGRES_DWH_PORT", "5432"))
-POSTGRES_DWH_USER = os.getenv("POSTGRES_DWH_USER", "postgres")
-POSTGRES_DWH_PASSWORD = os.getenv("POSTGRES_DWH_PASSWORD", "securepassword")
-POSTGRES_DWH_DB = os.getenv("POSTGRES_DWH_DB", "dwh_db")
-
-LANGFUSE_HEALTH_URL = os.getenv("LANGFUSE_HEALTH_URL", "http://langfuse_web:3000/api/public/health")
-SIGNOZ_CLICKHOUSE_HOSTS = tuple(
-    host.strip()
-    for host in os.getenv("SIGNOZ_CLICKHOUSE_HOSTS", "signoz-clickhouse,chi-signoz-clickhouse-cluster0-0-0").split(",")
-    if host.strip()
-)
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ROOT_USER", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
+MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "agentic-bi-raw")
 
 
 @dag(
     dag_id="smoke_dag",
-    description="Verify connectivity to all infrastructure services",
+    description="Verify local Agentic BI infrastructure services",
     schedule=None,
     start_date=datetime(2026, 6, 8),
     catchup=False,
@@ -45,7 +35,6 @@ SIGNOZ_CLICKHOUSE_HOSTS = tuple(
 def smoke_dag():
     @task()
     def check_agentic_clickhouse():
-        """Verify the ClickHouse instance owned by this Agentic BI project."""
         import clickhouse_connect
 
         client = clickhouse_connect.get_client(
@@ -55,75 +44,32 @@ def smoke_dag():
             password=AGENTIC_CLICKHOUSE_PASSWORD,
         )
         version = client.command("SELECT version()")
+        client.command("CREATE DATABASE IF NOT EXISTS vsf_raw")
+        client.command("CREATE DATABASE IF NOT EXISTS vsf_stg")
+        client.command("CREATE DATABASE IF NOT EXISTS vsf_mart")
         print(f"[OK] Agentic ClickHouse connected - version {version}")
-
-        client.command("CREATE DATABASE IF NOT EXISTS agentic_bi")
-        databases = client.command("SHOW DATABASES")
-        print(f"[OK] Databases: {databases}")
+        client.close()
         return version
 
     @task()
-    def check_postgres_dwh():
-        """Verify the reused sprint-1 PostgreSQL DWH."""
-        import psycopg2
+    def check_minio():
+        from minio import Minio
 
-        conn = psycopg2.connect(
-            host=POSTGRES_DWH_HOST,
-            port=POSTGRES_DWH_PORT,
-            user=POSTGRES_DWH_USER,
-            password=POSTGRES_DWH_PASSWORD,
-            dbname=POSTGRES_DWH_DB,
+        client = Minio(
+            MINIO_ENDPOINT,
+            access_key=MINIO_ACCESS_KEY,
+            secret_key=MINIO_SECRET_KEY,
+            secure=MINIO_SECURE,
         )
-        cur = conn.cursor()
-        cur.execute("SELECT version()")
-        version = cur.fetchone()[0]
-        print(f"[OK] PostgreSQL DWH connected - {version}")
-
-        cur.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'staging' LIMIT 5"
-        )
-        tables = [row[0] for row in cur.fetchall()]
-        print(f"[OK] Staging tables found: {tables}")
-        cur.close()
-        conn.close()
-        return version
-
-    @task()
-    def check_langfuse():
-        """Verify the reused sprint-1 Langfuse web API."""
-        import json
-        import urllib.request
-
-        req = urllib.request.Request(LANGFUSE_HEALTH_URL)
-        resp = urllib.request.urlopen(req, timeout=5)
-        data = json.loads(resp.read().decode())
-        print(f"[OK] Langfuse API reachable - status: {data}")
-        return data.get("status", "unknown")
-
-    @task()
-    def check_signoz_clickhouse():
-        """Verify the reused sprint-1 SigNoz ClickHouse by explicit service names."""
-        import urllib.request
-
-        for host in SIGNOZ_CLICKHOUSE_HOSTS:
-            try:
-                resp = urllib.request.urlopen(f"http://{host}:8123/ping", timeout=3)
-                if resp.status == 200:
-                    print(f"[OK] SigNoz ClickHouse reachable at {host}:8123")
-                    return host
-            except Exception:
-                continue
-
-        raise RuntimeError(
-            "SigNoz ClickHouse was not reachable by known service names. "
-            "Connect Airflow to signoz-net and verify the SigNoz ClickHouse container name."
-        )
+        if not client.bucket_exists(MINIO_BUCKET):
+            print(f"[WARN] MinIO bucket {MINIO_BUCKET} does not exist yet; seed_minio.py will create it.")
+            return "missing_bucket"
+        objects = list(client.list_objects(MINIO_BUCKET, prefix="raw/", recursive=True))
+        print(f"[OK] MinIO reachable - {len(objects)} raw objects currently present")
+        return "ok"
 
     check_agentic_clickhouse()
-    check_postgres_dwh()
-    check_langfuse()
-    check_signoz_clickhouse()
+    check_minio()
 
 
 smoke_dag()

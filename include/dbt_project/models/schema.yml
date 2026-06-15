@@ -1,57 +1,143 @@
 version: 2
 
 models:
-  - name: fct_llm_interactions
-    description: "Conversations turn list enriched with SigNoz errors and Langfuse metadata"
+  - name: stg_user_interactions
+    description: "Typed and lightly standardized user interaction records from the raw MinIO batch."
     columns:
       - name: interaction_id
-        description: "Primary key"
-        tests:
-          - unique
-          - not_null
-      - name: prompt_text
-        description: "User prompt text"
-        tests:
-          - not_null
+        description: "Stable interaction identifier."
+        tests: [not_null, unique]
       - name: source_app_id
-        description: "Source application/member identifier"
-        tests:
-          - not_null
-      - name: model
-        description: "LLM model name used"
-        tests:
-          - not_null
-      - name: total_tokens
-        description: "Total token count"
-        tests:
-          - not_null
+        description: "Source application identifier."
+        tests: [not_null]
+      - name: provider
+        description: "Inferred LLM provider from the model name."
+        tests: [not_null]
       - name: total_cost_usd
-        description: "Total estimated cost for the interaction in USD"
-        tests:
-          - not_null
+        description: "Estimated interaction cost in USD."
+        tests: [not_null]
 
-  - name: staging_llm_generations
-    description: "Proposal-aligned silver LLM generation table enriched with source app metadata"
+  - name: stg_langfuse_generations
+    description: "Typed Langfuse generation records from the raw MinIO batch."
     columns:
       - name: generation_id
+        description: "Stable generation identifier."
+        tests: [not_null, unique]
+      - name: trace_id
+        description: "Trace identifier shared with user interactions and observability data."
+        tests: [not_null]
+      - name: model
+        description: "LLM model name."
+        tests: [not_null]
+
+  - name: stg_signoz_logs
+    description: "Typed SigNoz log records used to enrich gold interactions with error context."
+    columns:
+      - name: log_id
+        description: "Stable log identifier."
+        tests: [not_null, unique]
+      - name: severity
+        description: "Log severity."
         tests:
-          - not_null
+          - accepted_values:
+              values: ['INFO', 'WARN', 'ERROR', 'FATAL']
+
+  - name: staging_llm_generations
+    description: "Silver LLM generation table enriched with source app metadata and normalized cost fields."
+    columns:
+      - name: generation_id
+        description: "Stable generation identifier."
+        tests: [not_null, unique]
       - name: source_app_id
-        tests:
-          - not_null
+        description: "Source application identifier."
+        tests: [not_null]
       - name: provider
+        description: "Inferred provider such as openai, google, anthropic, or unknown."
+        tests: [not_null]
+      - name: total_cost_usd
+        description: "Total generation cost in USD."
+        tests: [not_null]
+
+  - name: fct_llm_interactions
+    description: "Business-ready interaction fact enriched with source app dimensions, costs, tokens, latency, status, and error details."
+    columns:
+      - name: interaction_id
+        description: "Primary key for a user interaction."
+        tests: [unique, not_null]
+      - name: langfuse_trace_id
+        description: "Trace identifier joining interactions to generation and observability telemetry."
+        tests: [not_null]
+      - name: source_app_id
+        description: "Source application/member identifier."
+        tests: [not_null]
+      - name: domain
+        description: "Business domain from the source app dimension."
+      - name: environment
+        description: "Runtime environment from the source app dimension."
+      - name: started_at
+        description: "UTC interaction start timestamp."
+        tests: [not_null]
+      - name: model
+        description: "LLM model name used."
+        tests: [not_null]
+      - name: provider
+        description: "Inferred model provider."
+        tests: [not_null]
+      - name: prompt_text
+        description: "User prompt text."
+        tests: [not_null]
+      - name: total_tokens
+        description: "Total token count."
+        tests: [not_null]
+      - name: total_cost_usd
+        description: "Total estimated cost for the interaction in USD."
+        tests: [not_null]
+      - name: latency_ms
+        description: "Interaction latency in milliseconds."
+        tests: [not_null]
+      - name: status
+        description: "Interaction status."
         tests:
-          - not_null
+          - accepted_values:
+              values: ['success', 'failed']
 
   - name: gold_app_daily_cost
-    description: "Daily cost and quality mart by source app, provider, and model"
+    description: "Daily cost, token, latency, and error mart by source app, provider, and model."
     columns:
       - name: date
-        tests:
-          - not_null
+        description: "UTC usage date."
+        tests: [not_null]
       - name: source_app_id
-        tests:
-          - not_null
+        description: "Source application identifier."
+        tests: [not_null]
+      - name: provider
+        description: "Inferred LLM provider."
+        tests: [not_null]
+      - name: model
+        description: "LLM model name."
+        tests: [not_null]
       - name: request_count
-        tests:
-          - not_null
+        description: "Number of interactions for this date/app/provider/model."
+        tests: [not_null]
+      - name: total_tokens
+        description: "Total tokens used."
+        tests: [not_null]
+      - name: total_cost_usd
+        description: "Total estimated cost in USD."
+        tests: [not_null]
+      - name: error_rate
+        description: "Failed interaction rate from 0 to 1."
+        tests: [not_null]
+
+  - name: agg_daily_llm_metrics
+    description: "Additional daily LLM metrics by app and model for BI exploration."
+    columns:
+      - name: date
+        description: "UTC usage date."
+        tests: [not_null]
+      - name: source_app_id
+        description: "Source application identifier."
+        tests: [not_null]
+      - name: model
+        description: "LLM model name."
+        tests: [not_null]

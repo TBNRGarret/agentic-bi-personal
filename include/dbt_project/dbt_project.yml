@@ -10,13 +10,13 @@ test-paths: ["tests"]
 seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
-target-path: "/tmp/dbt_target"
-log-path: "/tmp/dbt_logs"
-packages-install-path: "/tmp/dbt_packages"
+target-path: "target"
+log-path: "logs"
+packages-install-path: "dbt_packages"
 
 clean-targets:
-  - "/tmp/dbt_target"
-  - "/tmp/dbt_packages"
+  - "target"
+  - "dbt_packages"
 
 models:
   dbt_project:

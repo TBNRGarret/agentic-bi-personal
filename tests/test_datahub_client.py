@@ -22,7 +22,7 @@ SAMPLE_SEARCH_RESPONSE = {
             "searchResults": [
                 {
                     "entity": {
-                        "urn": "urn:li:dataset:(urn:li:dataPlatform:clickhouse,vsf_mart.fct_llm_interactions,PROD)",
+                        "urn": "urn:li:dataset:(urn:li:dataPlatform:clickhouse,agentic_clickhouse.vsf_mart.fct_llm_interactions,PROD)",
                         "name": "fct_llm_interactions",
                         "platform": {"name": "clickhouse"},
                         "editableProperties": None,
@@ -33,7 +33,7 @@ SAMPLE_SEARCH_RESPONSE = {
                 },
                 {
                     "entity": {
-                        "urn": "urn:li:dataset:(urn:li:dataPlatform:clickhouse,vsf_mart.gold_app_daily_cost,PROD)",
+                        "urn": "urn:li:dataset:(urn:li:dataPlatform:clickhouse,agentic_clickhouse.vsf_mart.gold_app_daily_cost,PROD)",
                         "name": "gold_app_daily_cost",
                         "platform": {"name": "clickhouse"},
                         "editableProperties": {"description": "Daily aggregated LLM metrics"},
@@ -152,7 +152,7 @@ class TestGetColumns:
 
         from metadata.client.datahub_client import DataHubClient
         client = DataHubClient()
-        columns = client.get_columns("urn:li:dataset:(urn:li:dataPlatform:clickhouse,vsf_mart.fct_llm_interactions,PROD)")
+        columns = client.get_columns("urn:li:dataset:(urn:li:dataPlatform:clickhouse,agentic_clickhouse.vsf_mart.fct_llm_interactions,PROD)")
 
         assert len(columns) == 4
         assert columns[0]["name"] == "interaction_id"
@@ -207,7 +207,7 @@ class TestGetLineage:
         from metadata.client.datahub_client import DataHubClient
         client = DataHubClient()
         lineage = client.get_lineage(
-            "urn:li:dataset:(urn:li:dataPlatform:clickhouse,vsf_mart.fct_llm_interactions,PROD)"
+            "urn:li:dataset:(urn:li:dataPlatform:clickhouse,agentic_clickhouse.vsf_mart.fct_llm_interactions,PROD)"
         )
 
         assert lineage["entity"] == "fct_llm_interactions"
@@ -220,6 +220,7 @@ class TestGetSchemaContextForQuestion:
     def test_schema_context_contains_table_and_columns(self, mock_post):
         # First call: list_tables, Second call: get_columns for each table
         mock_post.side_effect = [
+            _mock_httpx_post({"data": {"search": {"searchResults": []}}}),
             _mock_httpx_post(SAMPLE_SEARCH_RESPONSE),
             _mock_httpx_post(SAMPLE_SCHEMA_RESPONSE),
             _mock_httpx_post(SAMPLE_SCHEMA_RESPONSE),

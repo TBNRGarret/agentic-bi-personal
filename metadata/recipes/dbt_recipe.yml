@@ -36,4 +36,4 @@ source:
 sink:
   type: datahub-rest
   config:
-    server: "http://localhost:28080"
+    server: "http://47.131.228.222:28080"
