@@ -12,8 +12,12 @@ __pycache__/
 *.py[cod]
 
 .env
+.env.observation
 .env.datahub-vps
 .venv/
 venv/
 *.swp
 *.save
+
+pwd
+pwd.pub
