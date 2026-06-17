@@ -1,0 +1,4 @@
+FROM astrocrpublic.azurecr.io/runtime:3.2-5
+
+ENV UV_HTTP_TIMEOUT=180
+ENV UV_CONCURRENT_DOWNLOADS=1

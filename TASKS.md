@@ -1,4 +1,4 @@
-ll# Agentic BI — Task Breakdown
+# Agentic BI — Task Breakdown
 
 Story-level breakdown of the [4-Week Sprint Plan](./README.md). Each epic is split into
 user-story-sized tasks with acceptance criteria. Tasks are sized for a 4-engineer team.
@@ -8,74 +8,85 @@ user-story-sized tasks with acceptance criteria. Tasks are sized for a 4-enginee
 
 ---
 
+## Current Central DWH Hardening — 2026-06-10
+
+- [x] Add local MinIO raw landing service and JSONL export contract
+- [x] Add `vsf_raw`, `vsf_stg`, `vsf_mart` ClickHouse schema contract
+- [x] Rework Airflow DAG code path from direct Postgres load to MinIO batch load
+- [x] Add dbt seed/model contract for `source_apps`, `staging_llm_generations`, and `gold_app_daily_cost`
+- [x] Update DataHub client/recipes to target `vsf_mart` and ingest `vsf_*` schemas
+- [x] Run live Docker/Airflow/dbt/DataHub end-to-end verification and attach final row-count evidence
+
+---
+
 ## Sprint 1 — Data Foundation & Metadata (Week 1–2)
 
 ### Epic 1 — Sample Data Pipeline (Raw → Gold)
 
-- [ ] **S1.1 — Stand up local infrastructure** 🟢
+- [x] **S1.1 — Stand up local infrastructure** 🟢
   - **Assignee**: _______
   - Choose local Airflow 3 runtime: **Docker Compose** (hand-rolled) or **Astro CLI** (`astro dev`) — decide and document
   - Bring up Airflow 3 + ClickHouse (+ object/file storage for raw landing); wire ClickHouse into the chosen runtime
   - Services start cleanly, ClickHouse reachable, Airflow UI accessible
   - **AC**: One command (`docker compose up` or `astro dev start`) brings the full stack online; a smoke DAG runs end-to-end.
 
-- [ ] **S1.2 — Raw ingestion layer** 🔗 (needs S1.1)
+- [x] **S1.2 — Raw ingestion layer** 🔗 (needs S1.1)
   - **Assignee**: _______
   - Define the raw storage layer and land the provided sample data into it
   - Ingestion is orchestrated by an Airflow DAG (not a manual load)
   - **AC**: Raw data lands in the defined layer via an Airflow task; re-runnable / idempotent.
 
-- [ ] **S1.3 — dbt project: raw → silver → gold** 🔗 (needs S1.2)
+- [x] **S1.3 — dbt project: raw → silver → gold** 🔗 (needs S1.2)
   - **Assignee**: _______
   - Initialize dbt project against ClickHouse; build staging (silver) and mart (gold) models
   - Document sources and models in dbt
   - **AC**: Gold tables are queryable in ClickHouse; `dbt build` succeeds.
 
-- [ ] **S1.4 — Airflow ⇄ dbt orchestration** 🔗 (needs S1.3)
+- [x] **S1.4 — Airflow ⇄ dbt orchestration** 🔗 (needs S1.3)
   - **Assignee**: _______
   - Airflow runs the dbt transformations as part of the end-to-end pipeline
   - Define schedule/trigger and task dependencies (raw → silver → gold)
   - **AC**: A single DAG run takes raw all the way to gold.
 
-- [ ] **S1.5 — Data quality checks on gold** 🔗 (needs S1.3)
+- [x] **S1.5 — Data quality checks on gold** 🔗 (needs S1.3)
   - **Assignee**: _______
   - Research and choose ≥3 quality rules (e.g. freshness, completeness, uniqueness, referential integrity)
   - Implement them (dbt tests or equivalent) and surface results (table/log/UI — not silent)
   - **AC**: ≥3 checks run and pass; results are visible somewhere queryable.
 
-- [ ] **S1.6 — Epic 1 deliverable verification**
+- [x] **S1.6 — Epic 1 deliverable verification**
   - **Assignee**: _______
   - End-to-end demo run: raw → gold with quality checks passing and visible
   - **AC**: Matches README deliverable for Epic 1.
 
 ### Epic 2 — Metadata Store
 
-- [ ] **S2.1 — Evaluate & choose a metadata store**
+- [x] **S2.1 — Evaluate & choose a metadata store**
   - **Assignee**: _______
   - Compare DataHub / OpenMetadata / alternatives on: Airflow 3 + dbt connector support, local deploy simplicity, API quality
   - **AC**: Short written decision doc with the chosen tool and rationale.
 
-- [ ] **S2.2 — Deploy the metadata store locally** 🔗 (needs S2.1)
+- [x] **S2.2 — Deploy the metadata store locally** 🔗 (needs S2.1)
   - **Assignee**: _______
   - Add it to the local stack; bring it online reproducibly
   - **AC**: Metadata store UI + API reachable locally.
 
-- [ ] **S2.3 — Ingest dbt schema & lineage** 🔗 (needs S2.2, S1.3)
+- [x] **S2.3 — Ingest dbt schema & lineage** 🔗 (needs S2.2, S1.3)
   - **Assignee**: _______
   - Wire dbt `manifest.json` / `catalog.json` ingestion
   - **AC**: Schema and column metadata for gold models visible via the store's API.
 
-- [ ] **S2.4 — Ingest Airflow lineage & run history** 🔗 (needs S2.2, S1.4)
+- [x] **S2.4 — Ingest Airflow lineage & run history** 🔗 (needs S2.2, S1.4)
   - **Assignee**: _______
   - Emit/ingest Airflow 3 lineage events and pipeline run/freshness history
   - **AC**: Source→transform→gold lineage visible; freshness/run history queryable.
 
-- [ ] **S2.5 — Metadata API contract for the agent** 🔗 (needs S2.3, S2.4)
+- [x] **S2.5 — Metadata API contract for the agent** 🔗 (needs S2.3, S2.4)
   - **Assignee**: _______
   - Document the query path the agent will use at runtime ("what tables, what columns, last updated, lineage")
   - **AC**: Documented API/SDK calls answering those four questions; example requests captured.
 
-- [ ] **S2.6 — Epic 2 deliverable verification**
+- [x] **S2.6 — Epic 2 deliverable verification**
   - **Assignee**: _______
   - **AC**: Schema, lineage, freshness queryable via API; decision documented.
 
@@ -85,10 +96,11 @@ user-story-sized tasks with acceptance criteria. Tasks are sized for a 4-enginee
 
 ### Epic 3 — Observation Service & Agent Core
 
-- [ ] **S3.1 — Choose agent framework & scaffold the service**
+- [x] **S3.1 — Choose agent framework & scaffold the service**
   - **Assignee**: _______
   - Evaluate LangGraph / Claude Agent SDK / LlamaIndex / raw function calling
   - Scaffold Observation Service with `/chat`, `/query`, `/schema` contracts (stubs OK)
+  - **Decision**: Raw function-calling style FastAPI service first; the terminal tool is deterministic and allowlisted so observability can be validated before adding an external LLM planner.
   - **AC**: Service runs locally; endpoints respond; framework choice documented.
 
 - [ ] **S3.2 — Runtime metadata fetch + schema injection** 🔗 (needs S3.1, S2.5)
@@ -113,9 +125,10 @@ user-story-sized tasks with acceptance criteria. Tasks are sized for a 4-enginee
   - Feed DB error + failed SQL back to the LLM, retry ≤2×, enforce query timeout, fail gracefully
   - **AC**: A deliberately bad generation recovers without user intervention.
 
-- [ ] **S3.6 — Request logging** 🔗 (needs S3.3)
+- [x] **S3.6 — Request logging** 🔗 (needs S3.3)
   - **Assignee**: _______
   - Log user input, generated SQL, execution time, row count, token usage
+  - **Implementation**: `src/backend` emits JSON stdout logs with OpenTelemetry trace/span IDs, sends OTLP spans for SigNoz, and records `/chat` generations to Langfuse when keys are configured.
   - **AC**: Every request produces a structured log entry.
 
 - [ ] **S3.7 — Epic 3 deliverable verification**

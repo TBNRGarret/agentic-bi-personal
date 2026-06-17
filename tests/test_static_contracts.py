@@ -1,0 +1,231 @@
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def test_ingestion_loads_vsf_raw_batches_from_minio():
+    dag = read("dags/agentic_bi_pipeline.py")
+
+    assert "def ingest_minio_to_clickhouse():" in dag
+    assert "Minio(" in dag
+    assert 'RAW_BUCKET = "agentic-bi-raw"' in dag
+    assert "raw_ingestion_batches" in dag
+    assert "source_app_id" in dag
+    assert "batch_id" in dag
+    assert 'ch_client.command(f"TRUNCATE TABLE {table}")' not in dag
+    for table in (
+        "vsf_raw.signoz_logs",
+        "vsf_raw.signoz_traces",
+        "vsf_raw.signoz_metrics",
+        "vsf_raw.langfuse_generations",
+        "vsf_raw.user_interactions",
+    ):
+        assert f'"{table}"' in dag
+
+
+def test_pipeline_uses_vsf_databases_instead_of_legacy_names():
+    dag = read("dags/agentic_bi_pipeline.py")
+    dbt_project = read("include/dbt_project/dbt_project.yml")
+    profiles = read("include/dbt_project/profiles.yml")
+    sources = read("include/dbt_project/models/sources.yml")
+
+    for schema in ("vsf_raw", "vsf_stg", "vsf_mart"):
+        assert schema in dag
+
+    assert "schema: \"{{ env_var('AGENTIC_DBT_SCHEMA', 'vsf_mart') }}\"" in profiles
+    assert "+schema: vsf_stg" in dbt_project
+    assert "+schema: vsf_mart" in dbt_project
+    assert "database: vsf_raw" in sources
+    assert "database: raw" not in sources
+
+
+def test_compose_defines_minio_object_store():
+    compose = read("docker-compose.override.yml")
+
+    assert "  minio:" in compose
+    assert "minio/minio:" in compose
+    assert '"19001:9000"' in compose
+    assert '"19002:9001"' in compose
+    assert "minio_data:" in compose
+
+
+def test_datahub_recipes_include_vsf_schemas():
+    clickhouse_recipe = read("metadata/recipes/clickhouse_recipe.yml")
+    client = read("metadata/client/datahub_client.py")
+
+    for schema in ("vsf_raw", "vsf_stg", "vsf_mart"):
+        assert f'- "{schema}"' in clickhouse_recipe
+
+    assert 'schema: str = "vsf_mart"' in client
+
+
+def test_airflow_runtime_requirements_do_not_install_datahub_plugin():
+    requirements = read("requirements.txt")
+
+    assert "acryl-datahub-airflow-plugin" not in requirements
+
+
+def test_dockerfile_stabilizes_uv_dependency_downloads():
+    dockerfile = read("Dockerfile")
+
+    assert "UV_HTTP_TIMEOUT=180" in dockerfile
+    assert "UV_CONCURRENT_DOWNLOADS=1" in dockerfile
+
+
+def test_quality_gate_fails_when_gold_table_is_empty():
+    dag = read("dags/agentic_bi_pipeline.py")
+
+    assert "if total_count <= 0:" in dag
+    assert "No rows found in vsf_mart.fct_llm_interactions" in dag
+
+
+def test_smoke_dag_langfuse_check_is_strict():
+    smoke = read("dags/smoke_dag.py")
+    langfuse_block = smoke.split("def check_langfuse():", 1)[1].split("    @task()", 1)[0]
+
+    assert "except Exception" not in langfuse_block
+    assert 'return "ok"' not in langfuse_block
+
+
+def test_verify_script_extracts_json_before_convertfrom_json():
+    script = read("scripts/verify-system.ps1")
+
+    assert "Convert-AirflowCliJson" in script
+    assert "Convert-AirflowCliJson $runsOutput" in script
+    assert "$runsJson | ConvertFrom-Json" not in script
+
+
+def test_airflow_ui_url_is_discovered_from_published_container_port():
+    verify_script = read("scripts/verify-system.ps1")
+    start_script = read("scripts/start-system.ps1")
+
+    for script in (verify_script, start_script):
+        assert "Get-AgenticAirflowWebUrl" in script
+        assert "docker port $apiServer 8080/tcp" in script
+        assert "http://localhost:8080" not in script
+
+
+def test_dbt_config_does_not_reference_missing_bronze_models():
+    dbt_project = read("include/dbt_project/dbt_project.yml")
+
+    assert "bronze:" not in dbt_project
+
+
+def test_generated_artifacts_are_ignored():
+    gitignore = read(".gitignore")
+
+    for pattern in (".astro/", "include/dbt_project/target/", "include/dbt_project/logs/"):
+        assert pattern in gitignore
+
+
+def test_datahub_vps_compose_defines_pinned_resource_limited_stack():
+    compose = read("docker-compose-datahub.yml")
+
+    for service in (
+        "  datahub-mysql:",
+        "  datahub-opensearch:",
+        "  datahub-kafka-broker:",
+        "  datahub-system-update:",
+        "  datahub-gms:",
+        "  datahub-frontend:",
+        "  datahub-actions:",
+    ):
+        assert service in compose
+
+    assert "acryldata/datahub-gms:${DATAHUB_VERSION:-v1.4.0}" in compose
+    assert "acryldata/datahub-frontend-react:${DATAHUB_VERSION:-v1.4.0}" in compose
+    assert "opensearchproject/opensearch:2.19.3" in compose
+    assert "confluentinc/cp-kafka:8.0.0" in compose
+    assert "datahub-zookeeper" not in compose
+    assert "docker.elastic.co/elasticsearch" not in compose
+
+    for memory_limit in ("mem_limit: 768m", "mem_limit: 1536m", "mem_limit: 1024m"):
+        assert memory_limit in compose
+
+    assert '"${DATAHUB_MAPPED_GMS_PORT:-28080}:8080"' in compose
+    assert '"${DATAHUB_MAPPED_FRONTEND_PORT:-9002}:9002"' in compose
+    assert "DATAHUB_TOKEN_SERVICE_SIGNING_KEY" in compose
+    assert "DATAHUB_TOKEN_SERVICE_SALT" in compose
+
+
+def test_datahub_vps_env_template_documents_required_runtime_values():
+    env_template = read(".env.datahub-vps.example")
+
+    for key in (
+        "DATAHUB_VERSION=v1.4.0",
+        "DATAHUB_TOKEN_SERVICE_SIGNING_KEY=",
+        "DATAHUB_TOKEN_SERVICE_SALT=",
+        "DATAHUB_MAPPED_GMS_PORT=28080",
+        "DATAHUB_MAPPED_FRONTEND_PORT=9002",
+    ):
+        assert key in env_template
+
+    assert "openssl rand -base64 32" in env_template
+
+
+def test_datahub_vps_monitoring_scripts_capture_memory_and_crash_evidence():
+    monitor = read("scripts/vps-datahub-monitor.sh")
+    capacity_check = read("scripts/vps-datahub-capacity-check.sh")
+
+    for script in (monitor, capacity_check):
+        assert "docker-compose-datahub.yml" in script
+        assert "datahub-vps" in script
+
+    assert "docker stats --no-stream" in monitor
+    assert "free -m" in monitor
+    assert "OOMKilled" in monitor
+    assert "RestartCount" in monitor
+    assert "ExitCode" in monitor
+    assert "datahub-system-update" in monitor
+    assert "logs/datahub-vps" in monitor
+    assert "htop" in monitor
+
+    assert "vps-datahub-monitor.sh" in capacity_check
+    assert "http://localhost:${DATAHUB_MAPPED_GMS_PORT:-28080}/health" in capacity_check
+    assert "source \"$ENV_FILE\"" not in monitor
+    assert "source \"$ENV_FILE\"" not in capacity_check
+    assert "env_value()" in capacity_check
+    assert "vm.max_map_count" in capacity_check
+    assert "docker compose" in capacity_check
+
+
+def test_datahub_test_plan_points_to_runnable_vps_artifacts():
+    plan = read("docs/DATAHUB_TEST_PLAN.md")
+
+    for expected in (
+        "docker-compose-datahub.yml",
+        ".env.datahub-vps.example",
+        "scripts/vps-datahub-capacity-check.sh",
+        "scripts/vps-datahub-monitor.sh",
+        "docker compose --env-file .env.datahub-vps -f docker-compose-datahub.yml -p datahub-vps up -d",
+        "docker stats --no-stream",
+        "free -m",
+        "vm.max_map_count",
+    ):
+        assert expected in plan
+
+
+def test_seed_uses_worker_compatible_watermark_names():
+    seed = read("scripts/seed_dwh.py")
+
+    for watermark in (
+        "('signoz', 'logs'",
+        "('signoz', 'traces'",
+        "('signoz', 'metrics'",
+        "('langfuse', 'generations'",
+        "('langfuse', 'user_interactions'",
+    ):
+        assert watermark in seed
+
+    for legacy_watermark in (
+        "('signoz', 'signoz_logs'",
+        "('signoz', 'signoz_traces'",
+        "('signoz', 'signoz_metrics'",
+        "('langfuse', 'langfuse_generations'",
+    ):
+        assert legacy_watermark not in seed

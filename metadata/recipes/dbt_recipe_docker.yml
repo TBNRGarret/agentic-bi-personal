@@ -1,0 +1,23 @@
+pipeline_name: "agentic_bi_dbt"
+
+source:
+  type: dbt
+  config:
+    manifest_path: "include/dbt_project/target/manifest.json"
+    catalog_path: "include/dbt_project/target/catalog.json"
+    sources_path: "include/dbt_project/target/sources.json"
+    run_results_paths:
+      - "include/dbt_project/target/run_results.json"
+
+    target_platform: "clickhouse"
+    target_platform_instance: "agentic_clickhouse"
+
+
+    stateful_ingestion:
+      enabled: true
+      remove_stale_metadata: true
+
+sink:
+  type: datahub-rest
+  config:
+    server: "http://datahub-gms:8080"

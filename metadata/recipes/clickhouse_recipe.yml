@@ -1,0 +1,28 @@
+# DataHub ingestion recipe — ClickHouse warehouse physical schema.
+#
+# Ingests physical table and view metadata directly from the ClickHouse
+# database so DataHub can link dbt logical datasets to actual DB objects
+# and render accurate end-to-end lineage.
+#
+# Usage (from repo root):
+#   datahub ingest -c metadata/recipes/clickhouse_recipe.yml
+
+source:
+  type: clickhouse
+  config:
+    host_port: "47.131.228.222:18123"
+    username: "default"
+    password: "securepassword"
+    database_pattern:
+      allow:
+        - "vsf_raw"
+        - "vsf_stg"
+        - "vsf_mart"
+    include_tables: true
+    include_views: true
+    platform_instance: "agentic_clickhouse"
+
+sink:
+  type: datahub-rest
+  config:
+    server: "http://47.131.228.222:28080"

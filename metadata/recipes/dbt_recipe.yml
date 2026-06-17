@@ -1,0 +1,39 @@
+# DataHub ingestion recipe — dbt project metadata.
+#
+# Ingests:
+#   - Model & source definitions (manifest.json)
+#   - Column schemas (catalog.json)
+#   - Source freshness info (sources.json)
+#   - Test results & run history (run_results.json)
+#
+# Prerequisite: Run these dbt commands first to generate artifacts:
+#   dbt source freshness --project-dir include/dbt_project --profiles-dir include/dbt_project
+#   dbt build --project-dir include/dbt_project --profiles-dir include/dbt_project
+#   dbt docs generate --project-dir include/dbt_project --profiles-dir include/dbt_project
+#
+# Usage (from repo root):
+#   datahub ingest -c metadata/recipes/dbt_recipe.yml
+
+pipeline_name: "agentic_bi_dbt"
+
+source:
+  type: dbt
+  config:
+    manifest_path: "include/dbt_project/target/manifest.json"
+    catalog_path: "include/dbt_project/target/catalog.json"
+    sources_path: "include/dbt_project/target/sources.json"
+    run_results_paths:
+      - "include/dbt_project/target/run_results.json"
+
+    target_platform: "clickhouse"
+    target_platform_instance: "agentic_clickhouse"
+
+
+    stateful_ingestion:
+      enabled: true
+      remove_stale_metadata: true
+
+sink:
+  type: datahub-rest
+  config:
+    server: "http://47.131.228.222:28080"

@@ -1,0 +1,5 @@
+source_app_id,source_app_name,domain,environment,owner_team,source_dwh_type,source_dwh_name,is_active,created_at,updated_at
+hoang_ai_chat,Hoang AI Chat,observability,dev,hoang,minio,agentic-bi-raw,1,2026-06-10 00:00:00.000000,2026-06-14 00:00:00.000000
+an_ai_chat,An AI Chat,finance,dev,an,minio,agentic-bi-raw,1,2026-06-10 00:00:00.000000,2026-06-14 00:00:00.000000
+tuan_ai_chat,Tuan AI Chat,healthcare,dev,tuan,minio,agentic-bi-raw,1,2026-06-10 00:00:00.000000,2026-06-14 00:00:00.000000
+bach_ai_chat,Bach AI Chat,education,dev,bach,minio,agentic-bi-raw,1,2026-06-10 00:00:00.000000,2026-06-14 00:00:00.000000
