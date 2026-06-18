@@ -17,3 +17,5 @@ acryl-datahub
 
 # DataHub Python client dependency (for E2/E3)
 httpx>=0.27,<1.0
+
+openmetadata-ingestion
