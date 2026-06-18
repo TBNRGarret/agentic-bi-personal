@@ -31,6 +31,7 @@ Sprint 1 Postgres DWH
 | MinIO Console | http://localhost:19002 |
 | DataHub UI | http://localhost:9002 |
 | DataHub GMS API | http://localhost:28080 |
+| Observation Service | http://localhost:18000 |
 
 ### Run Order
 
@@ -44,6 +45,19 @@ docker exec <agentic-bi-scheduler-container> airflow dags trigger agentic_bi_pip
 .\metadata\scripts\run-ingestion.ps1
 .\scripts\verify-system.ps1
 ```
+
+Sprint 2 Observation Service smoke:
+
+```powershell
+docker compose build observation-service
+docker compose up -d clickhouse observation-service
+curl http://localhost:18000/health
+curl http://localhost:18000/chat -H "content-type: application/json" -d "{\"message\":\"kiểm tra git status\"}"
+```
+
+Telemetry env is documented in `.env.observation.example`: Langfuse keys enable
+generation traces, and `OTEL_EXPORTER_OTLP_ENDPOINT` sends OpenTelemetry traces
+to SigNoz.
 
 The central warehouse contract is:
 - Raw/audit: `vsf_raw.raw_ingestion_batches`, `vsf_raw.langfuse_generations`, `vsf_raw.user_interactions`, `vsf_raw.signoz_*`

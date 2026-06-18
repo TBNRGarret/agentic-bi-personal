@@ -96,10 +96,11 @@ user-story-sized tasks with acceptance criteria. Tasks are sized for a 4-enginee
 
 ### Epic 3 — Observation Service & Agent Core
 
-- [ ] **S3.1 — Choose agent framework & scaffold the service**
+- [x] **S3.1 — Choose agent framework & scaffold the service**
   - **Assignee**: _______
   - Evaluate LangGraph / Claude Agent SDK / LlamaIndex / raw function calling
   - Scaffold Observation Service with `/chat`, `/query`, `/schema` contracts (stubs OK)
+  - **Decision**: Raw function-calling style FastAPI service first; the terminal tool is deterministic and allowlisted so observability can be validated before adding an external LLM planner.
   - **AC**: Service runs locally; endpoints respond; framework choice documented.
 
 - [ ] **S3.2 — Runtime metadata fetch + schema injection** 🔗 (needs S3.1, S2.5)
@@ -124,9 +125,10 @@ user-story-sized tasks with acceptance criteria. Tasks are sized for a 4-enginee
   - Feed DB error + failed SQL back to the LLM, retry ≤2×, enforce query timeout, fail gracefully
   - **AC**: A deliberately bad generation recovers without user intervention.
 
-- [ ] **S3.6 — Request logging** 🔗 (needs S3.3)
+- [x] **S3.6 — Request logging** 🔗 (needs S3.3)
   - **Assignee**: _______
   - Log user input, generated SQL, execution time, row count, token usage
+  - **Implementation**: `src/backend` emits JSON stdout logs with OpenTelemetry trace/span IDs, sends OTLP spans for SigNoz, and records `/chat` generations to Langfuse when keys are configured.
   - **AC**: Every request produces a structured log entry.
 
 - [ ] **S3.7 — Epic 3 deliverable verification**
