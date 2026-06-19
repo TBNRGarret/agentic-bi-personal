@@ -73,7 +73,11 @@ export function DynamicChart({ chartSpec, rows, typeOverride, visualizationDsl }
     );
   }
 
-  const seriesKeys = seriesColumns(chartSpec?.series, columns, xKey, yKeys);
+  const explicitSeriesKeys = seriesColumns(chartSpec?.series, columns, xKey, yKeys);
+  const inferredSeriesKeys = (type === "line" || type === "bar") && explicitSeriesKeys.length === 0
+    ? inferSeriesColumns(rows, columns, numericColumns, xKey, yKeys)
+    : [];
+  const seriesKeys = explicitSeriesKeys.length > 0 ? explicitSeriesKeys : inferredSeriesKeys;
   const seriesData = (type === "line" || type === "bar") && seriesKeys.length > 0
     ? buildSeriesData(rows, xKey, yKeys, seriesKeys)
     : null;
@@ -265,6 +269,46 @@ function seriesColumns(
 ): string[] {
   const requested = Array.isArray(value) ? value : value ? [value] : [];
   return requested.filter((key) => columns.includes(key) && key !== xKey && !yKeys.includes(key));
+}
+
+function inferSeriesColumns(
+  rows: Record<string, unknown>[],
+  columns: string[],
+  numericColumns: string[],
+  xKey: string,
+  yKeys: string[],
+): string[] {
+  const candidates = columns.filter((column) => (
+    column !== xKey && !yKeys.includes(column) && !numericColumns.includes(column)
+  ));
+  if (!candidates.length) return [];
+
+  const xCounts = new Map<string, number>();
+  rows.forEach((row) => {
+    const x = cellValue(row[xKey]);
+    xCounts.set(x, (xCounts.get(x) || 0) + 1);
+  });
+  const repeatedX = new Set(
+    Array.from(xCounts.entries())
+      .filter(([x, count]) => Boolean(x) && count > 1)
+      .map(([x]) => x),
+  );
+  if (!repeatedX.size) return [];
+
+  const maxUniqueValues = Math.max(2, Math.min(24, Math.floor(rows.length / 2) || 2));
+  return candidates.filter((column) => {
+    const values = new Set(rows.map((row) => cellValue(row[column])).filter(Boolean));
+    if (values.size <= 1 || values.size > maxUniqueValues) return false;
+    return Array.from(repeatedX).some((x) => {
+      const valuesForX = new Set(
+        rows
+          .filter((row) => cellValue(row[xKey]) === x)
+          .map((row) => cellValue(row[column]))
+          .filter(Boolean),
+      );
+      return valuesForX.size > 1;
+    });
+  }).slice(0, 2);
 }
 
 function buildSeriesData(

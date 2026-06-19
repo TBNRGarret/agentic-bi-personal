@@ -264,6 +264,24 @@ def test_chart_spec_uses_requested_dimensions_as_composite_series() -> None:
     assert spec["series"] == ["model", "source_app"]
 
 
+def test_chart_spec_infers_series_from_repeated_time_grain() -> None:
+    rows = [
+        {"metric_date": "2026-06-01", "source_app": "app_a", "model": "gpt-4o", "total_cost_usd": 1.2},
+        {"metric_date": "2026-06-01", "source_app": "app_b", "model": "gpt-4o-mini", "total_cost_usd": 0.8},
+        {"metric_date": "2026-06-02", "source_app": "app_a", "model": "gpt-4o", "total_cost_usd": 1.5},
+    ]
+
+    spec = infer_chart_spec(
+        rows,
+        intent="time_series",
+        preferred_y=["total_cost_usd"],
+    )
+
+    assert spec["type"] == "line"
+    assert spec["x"] == "metric_date"
+    assert spec["y"] == ["total_cost_usd"]
+    assert spec["series"] == ["source_app", "model"]
+
 def test_dimension_aware_sql_fallback_groups_by_all_requested_grain() -> None:
     plan = build_request_plan(
         "cost tung model theo tung ngay cua tung source app, khong bo sot source nao",

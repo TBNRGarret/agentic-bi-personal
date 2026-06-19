@@ -75,6 +75,11 @@ def infer_chart_spec(
             x=x,
             y_columns=preferred_numeric or numeric,
             categorical=categorical,
+        ) or _series_for_repeated_x(
+            rows,
+            x=x,
+            y_columns=preferred_numeric or numeric,
+            categorical=categorical,
         )
         return {
             "type": "line",
@@ -96,6 +101,11 @@ def infer_chart_spec(
         x = _preferred_categorical_x(categorical, requested_dimension_columns)
         series = _series_for_dimensions(
             requested_dimension_columns,
+            x=x,
+            y_columns=numeric,
+            categorical=categorical,
+        ) or _series_for_repeated_x(
+            rows,
             x=x,
             y_columns=numeric,
             categorical=categorical,
@@ -312,6 +322,11 @@ def _explicit_chart_spec(
             x=x,
             y_columns=preferred_numeric or numeric,
             categorical=categorical,
+        ) or _series_for_repeated_x(
+            rows,
+            x=x,
+            y_columns=preferred_numeric or numeric,
+            categorical=categorical,
         )
         return {
             "type": "line",
@@ -324,6 +339,11 @@ def _explicit_chart_spec(
         x = _preferred_categorical_x(categorical, requested_dimension_columns)
         series = _series_for_dimensions(
             requested_dimension_columns,
+            x=x,
+            y_columns=preferred_numeric or numeric,
+            categorical=categorical,
+        ) or _series_for_repeated_x(
+            rows,
             x=x,
             y_columns=preferred_numeric or numeric,
             categorical=categorical,
@@ -470,6 +490,50 @@ def _series_for_dimensions(
         and column not in y_columns
     ]
 
+
+def _series_for_repeated_x(
+    rows: list[dict[str, Any]],
+    *,
+    x: str,
+    y_columns: list[str],
+    categorical: list[str],
+) -> list[str]:
+    candidates = [
+        column
+        for column in categorical
+        if column != x and column not in y_columns
+    ]
+    if not candidates:
+        return []
+
+    x_counts: dict[str, int] = {}
+    for row in rows:
+        key = str(row.get(x) or "")
+        x_counts[key] = x_counts.get(key, 0) + 1
+    repeated_x = {key for key, count in x_counts.items() if key and count > 1}
+    if not repeated_x:
+        return []
+
+    useful: list[str] = []
+    max_unique_values = max(2, min(24, len(rows) // 2 or 2))
+    for column in candidates:
+        values = {str(row.get(column) or "") for row in rows if row.get(column) is not None}
+        values.discard("")
+        if not (1 < len(values) <= max_unique_values):
+            continue
+        splits_repeated_x = any(
+            len(
+                {
+                    str(row.get(column) or "")
+                    for row in rows
+                    if str(row.get(x) or "") == x_value and row.get(column) is not None
+                }
+            ) > 1
+            for x_value in repeated_x
+        )
+        if splits_repeated_x:
+            useful.append(column)
+    return useful[:2]
 
 def _series_value(series: list[str]) -> str | list[str] | None:
     cleaned = [column for column in series if column]
