@@ -651,6 +651,12 @@ class MonitoringAgent:
             }
         )
         fallback_answer = _answer_text(rows, ", ".join(selected_table_names))
+        streamed_chunks: list[str] = []
+
+        def capture_synthesis_delta(text: str) -> None:
+            streamed_chunks.append(text)
+            emit({"type": "delta", "text": text})
+
         if include_synthesis:
             emit(
                 {
@@ -670,11 +676,7 @@ class MonitoringAgent:
                         conversation=conversation,
                         memory=memory,
                         chart_spec=chart_spec,
-                        delta_sink=(
-                            lambda text: emit({"type": "delta", "text": text})
-                            if event_sink is not None
-                            else None
-                        ),
+                        delta_sink=capture_synthesis_delta if event_sink is not None else None,
                     ),
                     timeout=max(0.05, self.settings.agent_synthesis_timeout_seconds),
                 )
@@ -708,11 +710,15 @@ class MonitoringAgent:
                 "model": None,
                 "answer": None,
             }
-        answer = (
-            str(llm_synthesis.get("answer"))
-            if llm_synthesis.get("status") == "success"
-            else fallback_answer
-        )
+        partial_synthesis_answer = "".join(streamed_chunks).strip()
+        if partial_synthesis_answer and llm_synthesis.get("status") != "success":
+            llm_synthesis = {
+                **llm_synthesis,
+                "answer": partial_synthesis_answer,
+                "partialAnswer": partial_synthesis_answer,
+                "streamed": True,
+            }
+        answer = str(llm_synthesis.get("answer") or "").strip() or fallback_answer
         usage = _merge_usage(plan, *correction_plans, llm_synthesis)
         return {
             "agent": "metadata_sql_agent",

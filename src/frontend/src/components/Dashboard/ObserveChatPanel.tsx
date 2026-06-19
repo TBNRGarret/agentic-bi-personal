@@ -436,7 +436,9 @@ export function ObserveChatPanel() {
           if (event.payload.sessionId) setSessionId(event.payload.sessionId);
           setMessages((prev) => updateAssistant(prev, assistantIndex, (message) => ({
             ...message,
-            content: event.payload?.answer || message.content || "Khong co cau tra loi.",
+            content: message.content.trim()
+              ? message.content
+              : event.payload?.answer || "Khong co cau tra loi.",
             data: event.payload,
           })));
         }
