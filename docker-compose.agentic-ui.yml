@@ -1,0 +1,60 @@
+name: agentic-bi-ui
+
+services:
+  observation-service:
+    build:
+      context: .
+      dockerfile: src/backend/Dockerfile
+    container_name: agentic-bi-observation-service
+    env_file:
+      - .env.agentic-ui
+    environment:
+      OBSERVATION_ENVIRONMENT: server
+      OBSERVATION_REPO_ROOT: /workspace
+      SOURCE_APP_ID: agentic-bi-server
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_DATABASE: default
+      CLICKHOUSE_ANALYTICS_SCHEMAS: gold,silver,vsf_mart,vsf_stg
+      CLICKHOUSE_SECURE: "false"
+      DWH_POSTGRES_DSN: postgresql://dwh_admin:dwh_admin_password@postgres-dwh:5432/central_dwh
+      DATAHUB_GMS_URL: http://datahub-gms:8080
+      METABASE_URL: http://metabase:3000
+      METABASE_PUBLIC_URL: http://47.131.228.222:3000
+      CORS_ORIGINS: http://47.131.228.222:3003,http://localhost:3003,http://127.0.0.1:3003
+      OTEL_SERVICE_NAME: agentic-bi-observation-service
+    ports:
+      - "18000:8000"
+    volumes:
+      - .:/workspace:ro
+    networks:
+      - airflow
+      - server
+      - datahub
+      - agentic-ui
+    restart: unless-stopped
+
+  observation-web:
+    build:
+      context: ./src/frontend
+    container_name: agentic-bi-observation-web
+    ports:
+      - "3003:3000"
+    networks:
+      - agentic-ui
+    depends_on:
+      - observation-service
+    restart: unless-stopped
+
+networks:
+  airflow:
+    external: true
+    name: agentic-bi_e56d3c_airflow
+  server:
+    external: true
+    name: agentic-bi_default
+  datahub:
+    external: true
+    name: datahub_network
+  agentic-ui:
+    driver: bridge
