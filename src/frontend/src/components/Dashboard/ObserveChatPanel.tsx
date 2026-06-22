@@ -12,6 +12,19 @@ interface ObserveChartSpec extends ChartSpec {
   visualizationDsl?: Record<string, unknown>;
 }
 
+interface UsageSummary {
+  totalTokens?: number;
+  total_tokens?: number;
+  promptTokens?: number;
+  prompt_tokens?: number;
+  completionTokens?: number;
+  completion_tokens?: number;
+  estimatedCostUsd?: number;
+  totalCostUsd?: number;
+  model?: string;
+  provider?: string;
+}
+
 interface ObserveChatResponse {
   answer?: string;
   agent?: string;
@@ -46,11 +59,9 @@ interface ObserveChatResponse {
       reasons?: string[];
     }>;
   };
-  llmUsage?: {
-    totalTokens?: number;
-    estimatedCostUsd?: number;
-    model?: string;
-  };
+  llmUsage?: UsageSummary;
+  usage?: UsageSummary;
+  llmSynthesis?: { usage?: UsageSummary; totalCostUsd?: number; model?: string; provider?: string };
 }
 
 interface ClarificationOption {
@@ -176,7 +187,8 @@ function chartMatchesRows(
   rows: Record<string, unknown>[],
   question: string,
 ): boolean {
-  if (rows.length < 2 || chartSpec.type === "table") return false;
+  if (chartSpec.type === "table") return rows.length > 0;
+  if (rows.length < 2) return false;
   const columns = new Set(rows.flatMap((row) => Object.keys(row)));
   const yColumns = Array.isArray(chartSpec.y) ? chartSpec.y : chartSpec.y ? [chartSpec.y] : [];
   const seriesColumns = Array.isArray(chartSpec.series) ? chartSpec.series : chartSpec.series ? [chartSpec.series] : [];
@@ -238,6 +250,30 @@ function rowsForChartSource(metrics: unknown, source?: string): Record<string, u
   return arrayRows((metrics as Record<string, unknown>)[source]) || [];
 }
 
+function fallbackAnswer(data?: ObserveChatResponse): string {
+  const rowCount = typeof data?.rowCount === "number" ? data.rowCount : getRows(data).length;
+  const tables = Array.isArray(data?.selectedTables) && data.selectedTables.length
+    ? data.selectedTables.join(", ")
+    : "selected data";
+  if (rowCount > 0) return "Returned " + rowCount + " row(s) from " + tables + ".";
+  if (data?.status === "error") return "The request failed before a response could be generated.";
+  return "Khong co cau tra loi.";
+}
+
+function numberValue(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function usageSummary(data?: ObserveChatResponse): { totalTokens: number; estimatedCostUsd: number } {
+  const usage = data?.llmUsage || data?.usage || data?.llmSynthesis?.usage || {};
+  const promptTokens = numberValue(usage.promptTokens ?? usage.prompt_tokens);
+  const completionTokens = numberValue(usage.completionTokens ?? usage.completion_tokens);
+  const totalTokens = numberValue(usage.totalTokens ?? usage.total_tokens) || promptTokens + completionTokens;
+  const estimatedCostUsd = numberValue(usage.estimatedCostUsd ?? usage.totalCostUsd ?? data?.llmSynthesis?.totalCostUsd);
+  return { totalTokens, estimatedCostUsd };
+}
+
 function getClarification(data?: ObserveChatResponse): ClarificationPayload | null {
   const clarification = data?.clarification;
   if (!clarification || !Array.isArray(clarification.options) || clarification.options.length === 0) {
@@ -273,7 +309,7 @@ function buildObserveConversation(messages: ChatMessage[]): Record<string, unkno
           series,
         }));
       }
-      return { role: message.role, content: message.content, data: compactData };
+      return { role: message.role, content: message.content || (message.role === "assistant" ? String(data.answer || fallbackAnswer(data as ObserveChatResponse)) : ""), data: compactData };
     });
 }
 
@@ -353,6 +389,18 @@ async function readObserveStream(response: Response, onEvent: (event: StreamEven
       }
     }
   }
+}
+
+
+function TokenUsageBadge({ data }: { data: ObserveChatResponse }) {
+  const usage = usageSummary(data);
+  return (
+    <div className="observe-cost-badge">
+      {usage.totalTokens.toLocaleString()} tokens
+      {" / "}
+      ${usage.estimatedCostUsd.toFixed(6)}
+    </div>
+  );
 }
 
 export function ObserveChatPanel() {
@@ -438,7 +486,7 @@ export function ObserveChatPanel() {
             ...message,
             content: message.content.trim()
               ? message.content
-              : event.payload?.answer || "Khong co cau tra loi.",
+              : (event.payload?.answer || fallbackAnswer(event.payload)),
             data: event.payload,
           })));
         }
@@ -462,7 +510,7 @@ export function ObserveChatPanel() {
     setSessionId(session.session_id);
     setMessages((session.messages || []).map((message) => ({
       role: message.role,
-      content: message.content,
+      content: message.content || (message.role === "assistant" ? String(message.payload?.answer || fallbackAnswer(message.payload)) : ""),
       data: message.role === "assistant" ? message.payload : undefined,
     })));
   };
@@ -561,12 +609,8 @@ export function ObserveChatPanel() {
                 {message.role === "assistant" && message.data?.routeNote && (
                   <div className="observe-route-note">{message.data.routeNote}</div>
                 )}
-                {message.role === "assistant" && message.data?.llmUsage && (
-                  <div className="observe-cost-badge">
-                    {Number(message.data.llmUsage.totalTokens || 0).toLocaleString()} tokens
-                    {" / "}
-                    ${Number(message.data.llmUsage.estimatedCostUsd || 0).toFixed(6)}
-                  </div>
+                {message.role === "assistant" && message.data && (
+                  <TokenUsageBadge data={message.data} />
                 )}
                 {message.role === "assistant" && Array.isArray(message.data?.selectedTables) && message.data.selectedTables.length > 0 && (
                   <details className="observe-data-sources">

@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from app.agents.chart_spec import infer_chart_spec
-from app.agents.monitoring_agent import MonitoringAgent, _generate_sql
+from app.agents.monitoring_agent import MonitoringAgent, _generate_sql, _plan_matches_intent
 from app.agents.request_orchestrator import build_request_plan
 from app.agents.multi_agent import MultiAgentOrchestrator
 from app.agents.table_selector import TableSelector
@@ -38,6 +38,39 @@ SERVER_MART_TABLE = {
         {"name": "error_count", "type": "UInt64"},
         {"name": "avg_latency_ms", "type": "Float64"},
         {"name": "p95_latency_ms", "type": "Float64"},
+    ],
+}
+
+
+GOLD_OBSERVABILITY_TABLE = {
+    "tableName": "gold.gold_system_observability_daily",
+    "database": "gold",
+    "datasource": "clickhouse",
+    "columns": [
+        {"name": "metric_date", "type": "Date"},
+        {"name": "source_app", "type": "String"},
+        {"name": "service_name", "type": "String"},
+        {"name": "log_count", "type": "UInt64"},
+        {"name": "error_log_count", "type": "UInt64"},
+        {"name": "span_count", "type": "UInt64"},
+        {"name": "error_span_count", "type": "UInt64"},
+        {"name": "avg_span_duration_ms", "type": "Float64"},
+        {"name": "p95_span_duration_ms", "type": "Float64"},
+    ],
+}
+
+SILVER_LOGS_TABLE = {
+    "tableName": "silver.silver_system_logs",
+    "database": "silver",
+    "datasource": "clickhouse",
+    "columns": [
+        {"name": "event_time", "type": "DateTime"},
+        {"name": "source_app", "type": "String"},
+        {"name": "service_name", "type": "String"},
+        {"name": "severity", "type": "String"},
+        {"name": "message", "type": "String"},
+        {"name": "trace_id", "type": "String"},
+        {"name": "span_id", "type": "String"},
     ],
 }
 
@@ -85,6 +118,20 @@ class FakePostgres:
 class FakePlannerlessLlm:
     async def classify_request_slots(self, question: str) -> dict[str, Any]:
         return {}
+
+
+class FakeInsightPlanner:
+    async def classify_request_slots(self, question: str) -> dict[str, Any]:
+        return {}
+
+    async def plan_agents(self, **kwargs: Any) -> dict[str, Any]:
+        return {
+            "status": "success",
+            "intent": "insight",
+            "agents": ["insight_agent"],
+            "confidence": 0.95,
+            "rationale": "errors imply root-cause analysis",
+        }
 
 
 class FakeChartAgent:
@@ -231,6 +278,93 @@ def test_multi_agent_uses_deterministic_plan_without_llm_planner() -> None:
         )
 
     asyncio.run(run())
+
+
+def test_log_error_lookup_prefers_silver_log_detail_table() -> None:
+    async def run() -> None:
+        settings = Settings(table_selector_embedding_enabled=False)
+        selector = TableSelector(settings)
+        selection = await selector.select(
+            "loi log cua hoang_ai_chat la ve gi vay",
+            [GOLD_OBSERVABILITY_TABLE, SILVER_LOGS_TABLE],
+            datasource="clickhouse",
+            min_tables=1,
+            max_tables=2,
+        )
+        assert selection.primary_table is not None
+        assert selection.primary_table["tableName"] == "silver.silver_system_logs"
+        assert selection.candidates[0]["sqlLinkOperation"] == "log_error_detail"
+
+    asyncio.run(run())
+
+
+def test_log_error_lookup_sql_filters_error_severity_and_source_app() -> None:
+    sql = _generate_sql(
+        "loi log cua hoang_ai_chat la ve gi vay",
+        SILVER_LOGS_TABLE,
+        100,
+        "clickhouse",
+    )
+
+    assert "FROM silver.silver_system_logs" in sql
+    assert "severity" in sql
+    assert "message" in sql
+    assert "lower(severity) IN ('error', 'fatal', 'critical')" in sql
+    assert "positionCaseInsensitiveUTF8(source_app, 'hoang_ai_chat')" in sql
+    assert "positionCaseInsensitiveUTF8(service_name, 'hoang-ai-chat')" in sql
+
+
+def test_log_error_lookup_rejects_span_only_sql_candidate() -> None:
+    assert not _plan_matches_intent(
+        "loi log cua hoang_ai_chat la ve gi vay",
+        "SELECT source_app, span_count, error_span_count "
+        "FROM gold.gold_system_observability_daily",
+        intent="lookup",
+    )
+    assert _plan_matches_intent(
+        "loi log cua hoang_ai_chat la ve gi vay",
+        "SELECT event_time, severity, message "
+        "FROM silver.silver_system_logs "
+        "WHERE lower(severity) IN ('error', 'fatal', 'critical')",
+        intent="lookup",
+    )
+
+
+def test_multi_agent_routes_log_error_lookup_to_chart_agent() -> None:
+    async def run() -> None:
+        settings = Settings(table_selector_embedding_enabled=False)
+        orchestrator = MultiAgentOrchestrator(
+            settings,
+            FakeChartAgent(),  # type: ignore[arg-type]
+            llm=FakeInsightPlanner(),  # type: ignore[arg-type]
+        )
+        plan = build_request_plan("loi log cua hoang_ai_chat la ve gi vay")
+        agent_plan = await orchestrator._agent_plan(
+            "loi log cua hoang_ai_chat la ve gi vay",
+            target="auto",
+            limit=100,
+            conversation=[],
+            memory={},
+            request_plan=plan,
+        )
+
+        assert agent_plan["intent"] == "chart"
+        assert agent_plan["agents"] == ["chart_agent"]
+        assert "log-detail SQL" in agent_plan["rationale"]
+
+    asyncio.run(run())
+
+
+def test_request_plan_keeps_overview_as_dashboard_despite_llm_slots() -> None:
+    plan = build_request_plan(
+        "Tong quan observe platform 24h qua the nao?",
+        llm_slots={
+            "intent_type": {"value": "lookup", "confidence": 0.99},
+            "domain": {"value": "observability", "confidence": 0.99},
+        },
+    )
+
+    assert plan["slots"]["intent_type"]["value"] == "dashboard"
 
 
 def test_request_plan_preserves_multi_dimension_coverage() -> None:

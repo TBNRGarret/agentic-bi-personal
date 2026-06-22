@@ -280,7 +280,7 @@ def _candidate_layer_tables(
         if any(
             term in text
             for term in ("silver", "staging", "raw", "event detail", "trace detail")
-        ):
+        ) or _asks_log_error_detail(text):
             detail = [
                 table
                 for table in candidates
@@ -384,6 +384,14 @@ def _sql_link_profile(question: str, datasource: str) -> SqlLinkProfile:
             operation=operation,
         )
 
+    if _asks_log_error_detail(text):
+        required_groups.append(frozenset({"event_time", "severity", "message"}))
+        preferred_columns.update(
+            {"event_time", "source_app", "service_name", "severity", "message", "trace_id", "span_id"}
+        )
+        grain_columns.update({"source_app", "service_name"})
+        operation = "log_error_detail"
+
     if any(
         term in text
         for term in ("raw", "record", "records", "detail", "event", "underlying")
@@ -422,7 +430,9 @@ def _sql_link_profile(question: str, datasource: str) -> SqlLinkProfile:
     if "error" in capabilities:
         required_groups.append(frozenset(_CAPABILITY_COLUMNS["error"]))
         operation = "error" if operation == "lookup" else operation
-        preferred_columns.update({"error_count", "error_span_count", "span_status"})
+        preferred_columns.update(
+            {"error_count", "error_log_count", "error_span_count", "severity", "message", "span_status"}
+        )
     if "ingestion" in capabilities:
         required_groups.append(frozenset(_CAPABILITY_COLUMNS["ingestion"]))
         operation = "ingestion"
@@ -491,7 +501,17 @@ def _domain_score(
     schema = str(table.get("database") or "")
     score = 0.0
     if datasource == "clickhouse":
-        if _asks_latency_root_cause(text):
+        if _asks_log_error_detail(text):
+            if {"event_time", "severity", "message"} <= columns:
+                score += 90
+                reasons.append("log-error detail needs severity and message columns")
+            else:
+                score -= 35
+                reasons.append("missing log-error detail columns")
+            if schema in {"gold", "vsf_mart"}:
+                score -= 25
+                reasons.append("aggregate layer cannot explain log messages")
+        elif _asks_latency_root_cause(text):
             has_latency = bool(_CAPABILITY_COLUMNS["latency"] & columns)
             has_dimension = bool(
                 {"service_name", "source_app", "source_app_id"} & columns
@@ -615,6 +635,7 @@ def _semantic_domain_column_score(
     capabilities = set(_question_capabilities(text))
     profiles = {
         "agent": {"query_count", "user_id", "username", "estimated_cost_usd"},
+        "log": {"event_time", "severity", "message", "trace_id", "span_id", "source_app", "service_name"},
         "llm": {
             "generation_count",
             "request_count",
@@ -673,6 +694,8 @@ def _semantic_domain_column_score(
 
 def _semantic_domain(text: str) -> str | None:
     normalized = _normalize(text)
+    if "log" in normalized:
+        return "log"
     if any(
         term in normalized
         for term in (
@@ -800,6 +823,38 @@ _STOP_TERMS = {
 }
 
 
+def _asks_log_error_detail(text: str) -> bool:
+    normalized = _normalize(text)
+    has_log_error = "log" in normalized and any(
+        term in normalized
+        for term in ("error", "failed", "failure", "fatal", "critical")
+    )
+    if not has_log_error:
+        return False
+    asks_detail = any(
+        term in normalized
+        for term in (
+            "message",
+            "detail",
+            "details",
+            "underlying",
+            "ve gi",
+            "la gi",
+            "noi dung",
+            "show",
+            "xem",
+            "liet ke",
+            "what",
+            "which",
+        )
+    )
+    asks_count = any(
+        term in normalized
+        for term in ("count", "so luong", "bao nhieu", "trend", "tong quan", "overview")
+    )
+    return asks_detail or not asks_count
+
+
 _CAPABILITY_COLUMNS = {
     "time": {
         "metric_date",
@@ -824,6 +879,7 @@ _CAPABILITY_COLUMNS = {
     "error": {
         "span_status",
         "trace_status",
+        "severity",
         "status",
         "error_count",
         "error_log_count",

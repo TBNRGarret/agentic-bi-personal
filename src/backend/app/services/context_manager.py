@@ -125,6 +125,13 @@ def suggest_followups(
     trend = _trend_suggestion(result, memory, entity)
     anomaly = _anomaly_suggestion(result)
     if "system_observability" in table:
+        if _has_positive_metric(result, "error_log_count"):
+            suggestions = [
+                trend or f"Show the error log trend for {entity} over the same timeframe",
+                anomaly or f"Compare log errors for {entity} with other services",
+                f"Show error log messages for {entity} over the same timeframe",
+            ]
+            return _unique_suggestions(suggestions)
         suggestions = [
             trend or f"Show the error trend for {entity} over the same timeframe",
             anomaly or f"Compare latency of {entity} with other services",
@@ -158,6 +165,14 @@ def suggest_followups(
             anomaly or "Break this metric down by service or source app",
             "Show the underlying detail rows",
         ]
+    )
+
+
+def _has_positive_metric(result: dict[str, Any], metric: str) -> bool:
+    return any(
+        (_number(row.get(metric)) or 0) > 0
+        for row in result.get("rows") or []
+        if isinstance(row, dict)
     )
 
 
@@ -425,6 +440,7 @@ def _compact_payload(result: dict[str, Any]) -> dict[str, Any]:
     payload = {
         key: result.get(key)
         for key in (
+            "answer",
             "status",
             "target",
             "intent",
@@ -437,6 +453,7 @@ def _compact_payload(result: dict[str, Any]) -> dict[str, Any]:
             "orchestration",
             "routeNote",
             "llmUsage",
+            "agentsUsed",
             "suggestions",
         )
         if result.get(key) is not None

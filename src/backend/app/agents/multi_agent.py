@@ -317,7 +317,7 @@ class MultiAgentOrchestrator:
             "status": status,
             "answer": answer,
             "rows": primary.get("rows", []) if primary else [],
-            "rowCount": primary.get("rowCount", 0) if primary else 0,
+            "rowCount": _artifact_row_count(primary) if primary else 0,
             "chartSpec": primary.get("chartSpec", {"type": "table"})
             if primary
             else {"type": "table", "reason": "No chart artifact was returned"},
@@ -344,7 +344,7 @@ class MultiAgentOrchestrator:
             "agentsUsed": agent_names,
             "warnings": warnings,
             "executionTimeMs": _elapsed_ms(started),
-            "llmUsage": _merge_agent_usage(responses, primary),
+            "llmUsage": _merge_agent_usage(responses, primary, self.summarizer.last_usage),
         }
         if primary and primary.get("llmSynthesis") is not None:
             result["llmSynthesis"] = primary.get("llmSynthesis")
@@ -378,7 +378,9 @@ class MultiAgentOrchestrator:
             }
         planner = getattr(self.llm, "plan_agents", None)
         if planner is None:
-            return _deterministic_agent_plan(question, request_plan)
+            return _force_request_plan_route(
+                question, request_plan, _deterministic_agent_plan(question, request_plan)
+            )
         try:
             raw_plan = await planner(
                 question=question,
@@ -391,13 +393,14 @@ class MultiAgentOrchestrator:
         except Exception as exc:
             fallback = _deterministic_agent_plan(question, request_plan)
             fallback["reason"] = str(exc)[:240]
-            return fallback
+            return _force_request_plan_route(question, request_plan, fallback)
         validated = _validate_agent_plan(raw_plan)
-        return (
+        plan = (
             validated
             if validated.get("status") == "success"
             else _deterministic_agent_plan(question, request_plan)
         )
+        return _force_request_plan_route(question, request_plan, plan)
 
     def _clarification_result(
         self,
@@ -1377,6 +1380,7 @@ class ForecastAgent:
 class SummarizerAgent:
     def __init__(self, llm: LlmService) -> None:
         self.llm = llm
+        self.last_usage: dict[str, Any] = {}
 
     async def summarize(
         self,
@@ -1385,6 +1389,7 @@ class SummarizerAgent:
         *,
         fallback: str | None = None,
     ) -> str:
+        self.last_usage = {}
         successful = [
             response for response in responses if response.status in {"success", "partial"}
         ]
@@ -1405,6 +1410,11 @@ class SummarizerAgent:
                     question=question,
                     responses=[response.to_dict() for response in responses],
                 )
+                if isinstance(summary, dict):
+                    self.last_usage = _llm_usage_from_result(summary)
+                    answer = str(summary.get("answer") or "").strip()
+                    if answer:
+                        return answer
                 if isinstance(summary, str) and summary.strip():
                     return summary.strip()
             except Exception:
@@ -1690,18 +1700,29 @@ def _legacy_intent(request_plan: dict[str, Any]) -> str:
     return "aggregation" if route in {"insight", "forecast", "qa"} else route
 
 
+def _artifact_row_count(result: dict[str, Any]) -> int:
+    try:
+        explicit = int(result.get("rowCount") or 0)
+    except (TypeError, ValueError):
+        explicit = 0
+    if explicit > 0:
+        return explicit
+    rows = result.get("rows")
+    return len(rows) if isinstance(rows, list) else 0
+
+
 def _primary_artifact_result(
     responses: list[AgentResponse],
 ) -> dict[str, Any]:
     for response in responses:
         if response.agent == "chart_agent" and response.artifacts:
             result = response.artifacts[0].get("result")
-            if isinstance(result, dict) and int(result.get("rowCount") or 0) > 0:
+            if isinstance(result, dict) and _artifact_row_count(result) > 0:
                 return result
     for response in responses:
         for artifact in response.artifacts:
             result = artifact.get("result")
-            if isinstance(result, dict) and int(result.get("rowCount") or 0) > 0:
+            if isinstance(result, dict) and _artifact_row_count(result) > 0:
                 return result
     for response in responses:
         if response.agent == "chart_agent" and response.artifacts:
@@ -1760,9 +1781,86 @@ def _merge_selected_tables(
     return names
 
 
+def _force_request_plan_route(
+    question: str,
+    request_plan: dict[str, Any],
+    plan: dict[str, Any],
+) -> dict[str, Any]:
+    slots = request_plan.get("slots") if isinstance(request_plan, dict) else {}
+    intent_slot = slots.get("intent_type") if isinstance(slots, dict) else {}
+    requested_intent = str(
+        intent_slot.get("value") if isinstance(intent_slot, dict) else ""
+    )
+    if requested_intent in {"dashboard", "full_report"}:
+        expected_agents = ROUTING_TABLE[requested_intent]
+        if plan.get("intent") != requested_intent or plan.get("agents") != expected_agents:
+            rationale = str(plan.get("rationale") or "").strip()
+            override_note = (
+                "Server override: explicit dashboard or report request uses "
+                "the matching specialist agent set."
+            )
+            plan = {
+                **plan,
+                "intent": requested_intent,
+                "agents": expected_agents,
+                "confidence": max(float(plan.get("confidence") or 0), 0.9),
+                "rationale": f"{rationale} {override_note}".strip(),
+            }
+    return _force_chart_for_log_error_lookup(question, plan)
+
+
+def _force_chart_for_log_error_lookup(
+    question: str, plan: dict[str, Any]
+) -> dict[str, Any]:
+    if not _asks_log_error_lookup(question):
+        return plan
+    if plan.get("agents") == ["chart_agent"] and plan.get("intent") == "chart":
+        return plan
+    rationale = str(plan.get("rationale") or "").strip()
+    override_note = "Server override: explicit log-error lookup needs log-detail SQL."
+    return {
+        **plan,
+        "intent": "chart",
+        "agents": ["chart_agent"],
+        "confidence": max(float(plan.get("confidence") or 0), 0.9),
+        "rationale": f"{rationale} {override_note}".strip(),
+    }
+
+
+def _asks_log_error_lookup(question: str) -> bool:
+    text = _normalize_token(question)
+    has_log_error = "log" in text and any(
+        term in text for term in ("error", "errors", "loi", "failed", "failure")
+    )
+    if not has_log_error:
+        return False
+    asks_detail = any(
+        term in text
+        for term in (
+            "message",
+            "detail",
+            "details",
+            "underlying",
+            "ve gi",
+            "la gi",
+            "noi dung",
+            "show",
+            "xem",
+            "liet ke",
+            "what",
+            "which",
+        )
+    )
+    asks_count = any(
+        term in text for term in ("count", "so luong", "bao nhieu", "trend", "tong quan", "overview")
+    )
+    return asks_detail or not asks_count
+
+
 def _merge_agent_usage(
     responses: list[AgentResponse],
     primary: dict[str, Any],
+    extra_usage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     total_tokens = 0
     total_cost = 0.0
@@ -1772,6 +1870,11 @@ def _merge_agent_usage(
         total_cost += float(usage.get("estimatedCostUsd") or 0)
         model = usage.get("model") or model
         provider = usage.get("provider") or provider
+    if extra_usage:
+        total_tokens += int(extra_usage.get("totalTokens") or extra_usage.get("total_tokens") or 0)
+        total_cost += float(extra_usage.get("estimatedCostUsd") or 0)
+        model = extra_usage.get("model") or model
+        provider = extra_usage.get("provider") or provider
     if not total_tokens and primary.get("llmUsage"):
         return primary["llmUsage"]
     return {

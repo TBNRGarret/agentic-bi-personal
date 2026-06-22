@@ -62,7 +62,7 @@ export function DynamicChart({ chartSpec, rows, typeOverride, visualizationDsl }
     : numericColumns.slice(0, type === "pie" ? 1 : 4);
   const yKey = yKeys[0];
 
-  if (type === "table") return null;
+  if (type === "table") return <DataTable rows={rows} title={chartSpec?.title || "Query result"} />;
   const minimumRows = type === "line" || type === "scatter" || type === "box" ? 2 : 1;
   if (rows.length < minimumRows || !xKey || !yKey) {
     return (
@@ -184,6 +184,39 @@ export function DynamicChart({ chartSpec, rows, typeOverride, visualizationDsl }
             </PieChart>
           )}
         </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+
+function DataTable({ rows, title }: { rows: Record<string, unknown>[]; title: string }) {
+  const columns = Object.keys(rows[0] || {}).slice(0, 10);
+  if (!rows.length || !columns.length) {
+    return <EmptyChart title={title} message="No rows to display." />;
+  }
+  return (
+    <div className="dynamic-chart dynamic-table-chart">
+      <div className="dynamic-chart-header">
+        <span>{title}</span>
+      </div>
+      <div className="data-table-wrap dynamic-table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              {columns.map((column) => <th key={column}>{column}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.slice(0, 50).map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {columns.map((column) => (
+                  <td key={column}>{cellValue(row[column])}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

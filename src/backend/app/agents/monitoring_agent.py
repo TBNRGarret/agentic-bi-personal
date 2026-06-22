@@ -1220,6 +1220,7 @@ def _semantic_domain_column_score(
     capabilities = set(_question_capabilities(text))
     profiles = {
         "agent": {"query_count", "user_id", "username", "estimated_cost_usd"},
+        "log": {"event_time", "severity", "message", "trace_id", "span_id", "source_app", "service_name"},
         "llm": {
             "generation_count",
             "request_count",
@@ -1278,6 +1279,8 @@ def _semantic_domain_column_score(
 
 def _semantic_domain(text: str) -> str | None:
     normalized = _normalize(text)
+    if "log" in normalized:
+        return "log"
     if any(
         term in normalized
         for term in (
@@ -1329,6 +1332,7 @@ _CAPABILITY_COLUMNS = {
     "error": {
         "span_status",
         "trace_status",
+        "severity",
         "status",
         "error_count",
         "error_log_count",
@@ -1526,6 +1530,9 @@ def _generate_sql(
         if request_sql:
             return request_sql
 
+    if _asks_log_error_detail(text) and {"event_time", "severity", "message"} <= columns:
+        return _log_error_detail_sql(question, table, limit, days)
+
     if {
         "event_time",
         "service_name",
@@ -1657,6 +1664,99 @@ def _generate_sql(
             "ORDER BY loaded_row_count DESC"
         )
     return _correction_sql(table, limit)
+
+
+def _log_error_detail_sql(
+    question: str,
+    table: dict[str, Any],
+    limit: int,
+    days: int,
+) -> str:
+    name = str(table["tableName"])
+    columns = {str(column.get("name")) for column in table.get("columns") or []}
+    projection_preferences = (
+        "event_time",
+        "source_app",
+        "service_name",
+        "severity",
+        "message",
+        "trace_id",
+        "span_id",
+    )
+    projection = [column for column in projection_preferences if column in columns]
+    where = [f"event_time >= now() - INTERVAL {days} DAY"]
+    if "severity" in columns:
+        where.append("lower(severity) IN ('error', 'fatal', 'critical')")
+    entity_filter = _source_or_service_filter(question, columns)
+    if entity_filter:
+        where.append(entity_filter)
+    return (
+        f"SELECT {', '.join(projection)} FROM {name} "
+        f"WHERE {' AND '.join(where)} ORDER BY event_time DESC "
+        f"LIMIT {min(limit, 1000)}"
+    )
+
+
+def _source_or_service_filter(question: str, columns: set[str]) -> str:
+    entity = _requested_observability_entity(question)
+    if not entity:
+        return ""
+    conditions: list[str] = []
+    seen: set[str] = set()
+    for column in ("source_app", "source_app_id", "service_name"):
+        if column not in columns:
+            continue
+        for value in _entity_variants(entity):
+            condition = (
+                f"positionCaseInsensitiveUTF8({column}, '{_sql_literal(value)}') > 0"
+            )
+            if condition not in seen:
+                seen.add(condition)
+                conditions.append(condition)
+    return f"({' OR '.join(conditions)})" if conditions else ""
+
+
+def _requested_observability_entity(question: str) -> str | None:
+    patterns = (
+        r"\bsource(?:\s+app)?\s*[=:]?\s*([a-zA-Z0-9_.:-]+)",
+        r"\bsource_app\s*[=:]?\s*([a-zA-Z0-9_.:-]+)",
+        r"\bservice\s*[=:]?\s*([a-zA-Z0-9_.:-]+)",
+        r"\bapp\s*[=:]?\s*([a-zA-Z0-9_.:-]+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, question, re.IGNORECASE)
+        if match:
+            value = match.group(1).strip("`'\".,;:?!()[]{}")
+            if _valid_observability_entity(value):
+                return value
+    for value in re.findall(r"\b[a-zA-Z0-9]+(?:[_-][a-zA-Z0-9]+)+\b", question):
+        if _valid_observability_entity(value):
+            return value
+    return None
+
+
+def _entity_variants(value: str) -> list[str]:
+    variants = [value, value.replace("_", "-"), value.replace("-", "_")]
+    deduped: list[str] = []
+    for variant in variants:
+        if variant and variant not in deduped:
+            deduped.append(variant)
+    return deduped
+
+
+def _valid_observability_entity(value: str) -> bool:
+    normalized = _normalize(value).strip()
+    return bool(normalized) and normalized not in {
+        "error",
+        "errors",
+        "failed",
+        "failure",
+        "log",
+        "logs",
+        "service",
+        "source",
+        "app",
+    }
 
 
 def _request_count_sql(
@@ -1999,6 +2099,11 @@ def _rows_match_requested_metrics(
         return True
     keys = {str(key).lower() for row in rows[:10] for key in row}
     normalized_sql = _normalize(sql)
+    text = _normalize(question)
+    if _asks_log_error_detail(text):
+        return {"severity", "message"} <= keys or (
+            "severity" in normalized_sql and "message" in normalized_sql
+        )
     has_generic_value_alias = "y" in keys or "value" in keys
     capabilities = set(_question_capabilities(question))
     checks = {
@@ -2240,6 +2345,11 @@ def _plan_matches_intent(
         if not grouping:
             return False
     text = _normalize(question)
+    if _asks_log_error_detail(text):
+        if not all(term in normalized for term in ("severity", "message")):
+            return False
+        if not any(term in normalized for term in ("silver_system_logs", "signoz_logs")):
+            return False
     capabilities = set(_question_capabilities(question))
     if (
         "cost" in capabilities
@@ -2357,6 +2467,38 @@ def _sql_has_dimension(normalized_sql: str, grouping: str, dimension: str) -> bo
         return True
     ordinal_grouping = bool(re.search(r"\bgroup by\s+(?:\d+\s*,\s*)*\d+\b", normalized_sql))
     return ordinal_grouping and any(term in normalized_sql for term in terms)
+
+
+def _asks_log_error_detail(text: str) -> bool:
+    normalized = _normalize(text)
+    has_log_error = "log" in normalized and any(
+        term in normalized
+        for term in ("error", "failed", "failure", "fatal", "critical")
+    )
+    if not has_log_error:
+        return False
+    asks_detail = any(
+        term in normalized
+        for term in (
+            "message",
+            "detail",
+            "details",
+            "underlying",
+            "ve gi",
+            "la gi",
+            "noi dung",
+            "show",
+            "xem",
+            "liet ke",
+            "what",
+            "which",
+        )
+    )
+    asks_count = any(
+        term in normalized
+        for term in ("count", "so luong", "bao nhieu", "trend", "tong quan", "overview")
+    )
+    return asks_detail or not asks_count
 
 
 def _asks_error_only_latency(text: str) -> bool:

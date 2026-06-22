@@ -352,7 +352,7 @@ class LlmService:
         *,
         question: str,
         responses: list[dict[str, Any]],
-    ) -> str | None:
+    ) -> dict[str, Any] | str | None:
         if not self.settings.llm_configured:
             return None
 
@@ -394,7 +394,20 @@ class LlmService:
                 timeout_seconds=self.settings.llm_timeout_seconds,
                 max_retries=1,
             )
-            return response.content.strip()
+            return {
+                "status": "success",
+                "provider": self.settings.llm_provider,
+                "model": self.settings.llm_model,
+                "answer": response.content.strip(),
+                "usage": {
+                    "prompt_tokens": response.prompt_tokens,
+                    "completion_tokens": response.completion_tokens,
+                    "total_tokens": response.prompt_tokens + response.completion_tokens,
+                },
+                "latencyMs": response.latency_ms,
+                "totalCostUsd": response.estimated_cost_usd,
+                "costSource": response.cost_source,
+            }
         except Exception:
             return None
 

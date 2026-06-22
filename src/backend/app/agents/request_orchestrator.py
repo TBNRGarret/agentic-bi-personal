@@ -498,6 +498,8 @@ def _reconcile_slots(slots: dict[str, dict[str, Any]], text: str) -> None:
     ]
     slots["dimensions"]["value"] = dimensions
     slots["coverage"]["value"] = coverage
+    if any(term in text for term in ("dashboard", "tong quan", "overview", "intent dashboard")):
+        slots["intent_type"] = _slot("dashboard", 0.96, "semantic_rules")
     intent = str(slots["intent_type"].get("value") or "")
     explicitly_non_temporal_chart = any(
         term in text
