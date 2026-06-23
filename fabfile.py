@@ -47,7 +47,7 @@ def build(c):
     """Rebuild Docker images on VPS."""
     with c.cd(PROJECT_DIR):
         cmd = _compose_cmd(c)
-        c.run(f"{cmd} build -d", echo=True, pty=True)
+        c.run(f"{cmd} build", echo=True, pty=True)
 
 
 @task
@@ -55,7 +55,7 @@ def up(c):
     """Start / recreate all Docker services on VPS."""
     with c.cd(PROJECT_DIR):
         cmd = _compose_cmd(c)
-        c.run(f"{cmd} up", echo=True, pty=True)
+        c.run(f"{cmd} up -d", echo=True, pty=True)
 
 
 @task
