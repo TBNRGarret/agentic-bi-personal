@@ -5,7 +5,7 @@ Requirements:
     pip install fabric
 
 Usage:
-    fab deploy             # full deploy (push local → pull VPS → build → restart)
+    fab deploy             # full deploy
     fab deploy.logs        # tail logs
 
 # ── Local SSH config ──────────────────────────────────────────────────────
@@ -15,66 +15,32 @@ Usage:
 #     Port 22
 """
 
-from fabric import Connection, task
+from fabric import task
 from invoke import Collection, run as local_run
 from invoke import env
 
 env.hosts = ["vps"]
-
 PROJECT_DIR = "agentic-bi"
 BRANCH = "dev-agent"
-
-COMPOSE_FILES = [
-    "docker-compose.yml",
-    "docker-compose.agentic-ui.yml",
-]
-
-
-def _compose_cmd(c: Connection) -> str:
-    """Build the docker compose command with all compose files."""
-    files = " ".join(f"-f {f}" for f in COMPOSE_FILES)
-    return f"docker compose {files}"
-
-
-def _run(c: Connection, cmd: str, **kwargs):
-    """Run command inside PROJECT_DIR (thay thế c.cd bị lỗi)."""
-    c.run(f"cd {PROJECT_DIR} && {cmd}", **kwargs)
+COMPOSE = "docker compose -f docker-compose.yml -f docker-compose.agentic-ui.yml"
 
 
 @task
-def push(c):
-    """Push local commits to dev-agent branch."""
+def deploy(c):
+    """Full deploy: sync local → 1 SSH session: pull + build + up + status."""
+    local_run(f"git pull --rebase origin {BRANCH}")
     local_run(f"git push origin {BRANCH}")
 
-
-@task
-def build(c):
-    """Rebuild Docker images on VPS."""
-    _run(c, f"{_compose_cmd(c)} build", echo=True, pty=True)
-
-
-@task
-def up(c):
-    """Start / recreate all Docker services on VPS."""
-    _run(c, f"{_compose_cmd(c)} up -d", echo=True, pty=True)
-
-
-@task
-def restart(c):
-    """Restart all Docker services on VPS."""
-    _run(c, f"{_compose_cmd(c)} restart", echo=True, pty=True)
-
-
-@task
-def down(c):
-    """Stop all Docker services on VPS."""
-    _run(c, f"{_compose_cmd(c)} down", echo=True)
-
-
-@task
-def status(c):
-    """Show container status on VPS."""
-    _run(c, f"{_compose_cmd(c)} ps", echo=True)
+    script = f"""
+echo "=== Connected to $(hostname) ==="
+cd {PROJECT_DIR} || {{ echo "FOLDER NOT FOUND: {PROJECT_DIR}"; exit 1; }}
+git pull origin {BRANCH}
+{COMPOSE} build
+{COMPOSE} up -d
+{COMPOSE} ps
+"""
+    c.run(script, echo=True, pty=True)
+    print("\nDeploy complete.")
 
 
 @task
@@ -87,27 +53,7 @@ def logs(c, service="", lines=50):
     """
     tail = f"--tail {lines}" if lines else ""
     svc = service or ""
-    _run(c, f"{_compose_cmd(c)} logs -f {tail} {svc}", echo=True, pty=True)
+    c.run(f"cd {PROJECT_DIR} && {COMPOSE} logs -f {tail} {svc}", echo=True, pty=True)
 
 
-@task
-def deploy(c):
-    """Full deploy: sync local → push → pull VPS → build → up (tự restart container mới)."""
-    local_run(f"git pull --rebase origin {BRANCH}")
-    push(c)
-    build(c)
-    up(c)
-    status(c)
-    print("\nDeploy complete. Run `fab deploy.logs` to monitor.")
-
-
-ns = Collection(
-    push,
-    build,
-    up,
-    restart,
-    down,
-    status,
-    logs,
-    deploy,
-)
+ns = Collection(deploy, logs)
