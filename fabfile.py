@@ -47,7 +47,7 @@ def build(c):
     """Rebuild Docker images on VPS."""
     with c.cd(PROJECT_DIR):
         cmd = _compose_cmd(c)
-        c.run(f"{cmd} build", echo=True, pty=True)
+        c.run(f"{cmd} build -d", echo=True, pty=True)
 
 
 @task
@@ -99,12 +99,11 @@ def logs(c, service="", lines=50):
 
 @task
 def deploy(c):
-    """Full deploy: sync local → push → pull VPS → build → restart."""
+    """Full deploy: sync local → push → pull VPS → build → up (tự restart container mới)."""
     local_run(f"git pull --rebase origin {BRANCH}")
     push(c)
     build(c)
     up(c)
-    restart(c)
     status(c)
     print("\nDeploy complete. Run `fab deploy.logs` to monitor.")
 
