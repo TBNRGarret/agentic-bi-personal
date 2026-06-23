@@ -21,7 +21,7 @@ from invoke import env
 
 env.hosts = ["vps"]
 
-PROJECT_DIR = "/home/tuanvan03/Documents/VINAI/VSF_TTS/agentic-bi2/agentic-bi"
+PROJECT_DIR = "/home/ubuntu/agentic-bi"
 BRANCH = "dev-agent"
 
 COMPOSE_FILES = [
