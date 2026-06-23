@@ -1,0 +1,10 @@
+source:
+  type: metabase
+  config:
+    connect_uri: "http://localhost:3000"
+    username: "${METABASE_ADMIN_EMAIL}"
+    password: "${METABASE_ADMIN_PASSWORD}"
+sink:
+  type: datahub-rest
+  config:
+    server: "http://localhost:28080"

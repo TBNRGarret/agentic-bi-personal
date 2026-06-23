@@ -50,7 +50,16 @@ $DATAHUB_CMD ingest -c metadata/recipes/dbt_recipe.yml
 echo "[DATAHUB] Ingesting ClickHouse metadata..."
 $DATAHUB_CMD ingest -c metadata/recipes/clickhouse_recipe.yml
 
+if [ -f ".env" ]; then
+  # Load env variables for Metabase ingestion if run locally
+  export $(grep -E '^(METABASE_ADMIN_EMAIL|METABASE_ADMIN_PASSWORD)=' .env | xargs)
+fi
+
+echo "[DATAHUB] Ingesting Metabase metadata..."
+$DATAHUB_CMD ingest -c metadata/recipes/metabase_recipe.yml
+
 echo "[DATAHUB] Publishing mart freshness properties..."
 $PYTHON_CMD metadata/scripts/publish_freshness.py
 
 echo "Metadata ingestion completed."
+

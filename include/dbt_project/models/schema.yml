@@ -42,6 +42,35 @@ models:
           - accepted_values:
               values: ['INFO', 'WARN', 'ERROR', 'FATAL']
 
+  - name: stg_signoz_traces
+    description: "Typed SigNoz trace span records from the raw MinIO batch."
+    columns:
+      - name: trace_id
+        description: "Trace identifier."
+        tests: [not_null]
+      - name: span_id
+        description: "Span identifier inside the trace."
+        tests: [not_null]
+      - name: service_name
+        description: "Service that produced the trace span."
+        tests: [not_null]
+      - name: duration_ms
+        description: "Span duration in milliseconds."
+        tests: [not_null]
+
+  - name: stg_signoz_metrics
+    description: "Typed SigNoz metric event records from the raw MinIO batch."
+    columns:
+      - name: metric_id
+        description: "Stable metric event identifier."
+        tests: [not_null, unique]
+      - name: metric_name
+        description: "Metric name, for example chat.turns."
+        tests: [not_null]
+      - name: metric_value
+        description: "Metric numeric value."
+        tests: [not_null]
+
   - name: staging_llm_generations
     description: "Silver LLM generation table enriched with source app metadata and normalized cost fields."
     columns:
