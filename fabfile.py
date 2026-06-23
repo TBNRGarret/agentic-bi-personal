@@ -36,6 +36,11 @@ def _compose_cmd(c: Connection) -> str:
     return f"docker compose {files}"
 
 
+def _run(c: Connection, cmd: str, **kwargs):
+    """Run command inside PROJECT_DIR (thay thế c.cd bị lỗi)."""
+    c.run(f"cd {PROJECT_DIR} && {cmd}", **kwargs)
+
+
 @task
 def push(c):
     """Push local commits to dev-agent branch."""
@@ -45,41 +50,31 @@ def push(c):
 @task
 def build(c):
     """Rebuild Docker images on VPS."""
-    with c.cd(PROJECT_DIR):
-        cmd = _compose_cmd(c)
-        c.run(f"{cmd} build", echo=True, pty=True)
+    _run(c, f"{_compose_cmd(c)} build", echo=True, pty=True)
 
 
 @task
 def up(c):
     """Start / recreate all Docker services on VPS."""
-    with c.cd(PROJECT_DIR):
-        cmd = _compose_cmd(c)
-        c.run(f"{cmd} up -d", echo=True, pty=True)
+    _run(c, f"{_compose_cmd(c)} up -d", echo=True, pty=True)
 
 
 @task
 def restart(c):
     """Restart all Docker services on VPS."""
-    with c.cd(PROJECT_DIR):
-        cmd = _compose_cmd(c)
-        c.run(f"{cmd} restart", echo=True, pty=True)
+    _run(c, f"{_compose_cmd(c)} restart", echo=True, pty=True)
 
 
 @task
 def down(c):
     """Stop all Docker services on VPS."""
-    with c.cd(PROJECT_DIR):
-        cmd = _compose_cmd(c)
-        c.run(f"{cmd} down", echo=True)
+    _run(c, f"{_compose_cmd(c)} down", echo=True)
 
 
 @task
 def status(c):
     """Show container status on VPS."""
-    with c.cd(PROJECT_DIR):
-        cmd = _compose_cmd(c)
-        c.run(f"{cmd} ps", echo=True)
+    _run(c, f"{_compose_cmd(c)} ps", echo=True)
 
 
 @task
@@ -90,11 +85,9 @@ def logs(c, service="", lines=50):
         fab deploy.logs
         fab deploy.logs --service observation-service
     """
-    with c.cd(PROJECT_DIR):
-        cmd = _compose_cmd(c)
-        tail = f"--tail {lines}" if lines else ""
-        svc = service or ""
-        c.run(f"{cmd} logs -f {tail} {svc}", echo=True, pty=True)
+    tail = f"--tail {lines}" if lines else ""
+    svc = service or ""
+    _run(c, f"{_compose_cmd(c)} logs -f {tail} {svc}", echo=True, pty=True)
 
 
 @task
