@@ -15,22 +15,20 @@ Usage:
 #     Port 22
 """
 
-from fabric import task
+from fabric import Connection, task
 from invoke import Collection, run as local_run
-from invoke import env
-
-env.hosts = ["vps"]
 PROJECT_DIR = "agentic-bi"
 BRANCH = "dev-agent"
 COMPOSE = "docker compose -f docker-compose.yml -f docker-compose.agentic-ui.yml"
 
 
 @task
-def deploy(c):
+def deploy(_):
     """Full deploy: sync local → 1 SSH session: pull + build + up + status."""
     local_run(f"git pull --rebase origin {BRANCH}")
     local_run(f"git push origin {BRANCH}")
 
+    conn = Connection("vps")
     script = f"""
 echo "=== Connected to $(hostname) ==="
 cd {PROJECT_DIR} || {{ echo "FOLDER NOT FOUND: {PROJECT_DIR}"; exit 1; }}
@@ -39,21 +37,22 @@ git pull origin {BRANCH}
 {COMPOSE} up -d
 {COMPOSE} ps
 """
-    c.run(script, echo=True, pty=True)
+    conn.run(script, echo=True, pty=True)
     print("\nDeploy complete.")
 
 
 @task
-def logs(c, service="", lines=50):
+def logs(_, service="", lines=50):
     """Tail logs from VPS services.
 
     Usage:
         fab deploy.logs
         fab deploy.logs --service observation-service
     """
+    conn = Connection("vps")
     tail = f"--tail {lines}" if lines else ""
     svc = service or ""
-    c.run(f"cd {PROJECT_DIR} && {COMPOSE} logs -f {tail} {svc}", echo=True, pty=True)
+    conn.run(f"cd {PROJECT_DIR} && {COMPOSE} logs -f {tail} {svc}", echo=True, pty=True)
 
 
 ns = Collection(deploy, logs)
