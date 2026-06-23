@@ -26,3 +26,10 @@ pydantic>=2.8,<3.0
 # Observation Service NL2SQL safety and LLM integration
 sqlglot>=25.0,<27.0
 openai>=1.90,<2.0
+
+# Airflow Core (for local IDE linting and autocompletion)
+apache-airflow>=3.0.0
+
+# Testing
+pytest
+
