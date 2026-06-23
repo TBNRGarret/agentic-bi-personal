@@ -27,3 +27,5 @@ dbt/logs/
 dbt/target/
 
 .env.agentic-ui
+
+output/
