@@ -39,22 +39,8 @@ def _compose_cmd(c: Connection) -> str:
 
 @task
 def push(c):
-    """Commit and push local changes to dev-agent branch."""
-    local_run("git add -A")
-    result = local_run("git diff --cached --quiet", warn=True)
-    if result.failed:
-        msg = f"chore: update before deploy [$(date +%Y-%m-%d_%H:%M)]"
-        local_run(f'git commit -m "{msg}"')
-    else:
-        print("[SKIP] No changes to commit.")
+    """Push local commits to dev-agent branch."""
     local_run(f"git push origin {BRANCH}")
-
-
-@task
-def pull(c):
-    """SSH into VPS and git pull latest dev-agent branch."""
-    with c.cd(PROJECT_DIR):
-        c.run(f"git pull origin {BRANCH}", echo=True)
 
 
 @task
@@ -114,10 +100,9 @@ def logs(c, service="", lines=50):
 
 @task
 def deploy(c):
-    """Full deploy: push local → pull VPS → build → restart services."""
+    """Full deploy: sync local → push → pull VPS → build → restart."""
     local_run(f"git pull --rebase origin {BRANCH}")
     push(c)
-    pull(c)
     build(c)
     up(c)
     restart(c)
@@ -127,7 +112,6 @@ def deploy(c):
 
 ns = Collection(
     push,
-    pull,
     build,
     up,
     restart,
