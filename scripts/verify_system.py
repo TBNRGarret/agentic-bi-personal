@@ -13,13 +13,16 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import clickhouse_connect
 from minio import Minio
 
 from metadata.client import DataHubClient
 
 
-ROOT = Path(__file__).resolve().parents[1]
 RAW_BUCKET = os.getenv("MINIO_BUCKET", "agentic-bi-raw")
 EXPECTED_RAW_TABLES = {
     "langfuse_generations",

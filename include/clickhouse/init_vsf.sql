@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS vsf_raw.signoz_logs (
     batch_id UUID,
     ingested_at DateTime64(6, 'UTC')
 ) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, source_app_id, log_id);
 
 CREATE TABLE IF NOT EXISTS vsf_raw.signoz_traces (
@@ -45,6 +46,7 @@ CREATE TABLE IF NOT EXISTS vsf_raw.signoz_traces (
     batch_id UUID,
     ingested_at DateTime64(6, 'UTC')
 ) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, source_app_id, trace_id, span_id);
 
 CREATE TABLE IF NOT EXISTS vsf_raw.signoz_metrics (
@@ -60,6 +62,7 @@ CREATE TABLE IF NOT EXISTS vsf_raw.signoz_metrics (
     batch_id UUID,
     ingested_at DateTime64(6, 'UTC')
 ) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, source_app_id, metric_name, metric_id);
 
 CREATE TABLE IF NOT EXISTS vsf_raw.langfuse_generations (

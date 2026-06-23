@@ -24,10 +24,12 @@ models:
       +materialized: table
       +schema: vsf_stg
       +engine: ReplacingMergeTree()
+      +tags: ['staging']
     gold:
       +materialized: table
       +schema: vsf_mart
       +engine: ReplacingMergeTree()
+      +tags: ['mart']
 
 seeds:
   dbt_project:
