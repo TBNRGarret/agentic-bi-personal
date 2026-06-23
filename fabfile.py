@@ -27,7 +27,6 @@ BRANCH = "dev-agent"
 COMPOSE_FILES = [
     "docker-compose.yml",
     "docker-compose.agentic-ui.yml",
-    "docker-compose.override.yml",
 ]
 
 
