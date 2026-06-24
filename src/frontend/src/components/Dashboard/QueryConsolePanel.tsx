@@ -983,7 +983,9 @@ export function QueryConsolePanel() {
           recordBiFinal(question, target, event.payload, finalAnswer);
           setChatMessages((prev) => updateAssistant(prev, assistantIndex, (message) => ({
             ...message,
-            content: finalAnswer,
+            // The backend has already sent the synthesized answer as `delta`
+            // events. Do not replace it with a potentially partial final payload.
+            content: message.content.trim() ? message.content : finalAnswer,
             data: event.payload,
           })));
         }

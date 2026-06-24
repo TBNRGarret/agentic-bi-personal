@@ -216,6 +216,30 @@ def test_table_selector_accepts_and_prefers_server_mart() -> None:
     asyncio.run(run())
 
 
+def test_table_selector_excludes_disabled_analytics_tables() -> None:
+    async def run() -> None:
+        settings = Settings(
+            table_selector_embedding_enabled=False,
+            disabled_analytics_tables=SERVER_MART_TABLE["tableName"],
+        )
+        selection = await TableSelector(settings).select(
+            "show request cost trend by source app for 30 days",
+            [GOLD_OBSERVABILITY_TABLE, SERVER_MART_TABLE],
+            datasource="clickhouse",
+            min_tables=1,
+            max_tables=2,
+        )
+
+        assert selection.primary_table is not None
+        assert selection.primary_table["tableName"] == GOLD_OBSERVABILITY_TABLE["tableName"]
+        assert all(
+            table["tableName"] != SERVER_MART_TABLE["tableName"]
+            for table in selection.tables
+        )
+
+    asyncio.run(run())
+
+
 def test_explicit_staging_request_excludes_curated_layers() -> None:
     async def run() -> None:
         settings = Settings(table_selector_embedding_enabled=False)
