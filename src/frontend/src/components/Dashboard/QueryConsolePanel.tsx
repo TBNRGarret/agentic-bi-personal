@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { DynamicChart, type ChartSpec, type ChartType } from "../Charts/DynamicChart";
 import { api } from "../../services/api.service";
+import { AgentFlowGraph } from "./AgentFlowGraph";
 
 interface QueryResult {
   success?: boolean;
@@ -1231,6 +1232,11 @@ export function QueryConsolePanel() {
                 Send
               </button>
             </div>
+            <AgentFlowGraph
+              stages={chatMessages[chatMessages.length - 1]?.stages || []}
+              data={chatMessages[chatMessages.length - 1]?.data}
+              loading={chatLoading}
+            />
           </div>
         </div>
       )}

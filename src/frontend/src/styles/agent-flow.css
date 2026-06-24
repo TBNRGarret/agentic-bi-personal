@@ -1,0 +1,166 @@
+/* ==========================================================================
+   Agent Flow Graph — Visual pipeline panel
+   ========================================================================== */
+
+.agent-flow-panel {
+  display: flex;
+  flex-direction: column;
+  width: 260px;
+  min-width: 240px;
+  border-left: 1px solid var(--border-color);
+  background: var(--bg-card);
+  overflow-y: auto;
+}
+
+.agent-flow-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+}
+
+.agent-flow-header svg {
+  color: var(--accent-indigo);
+}
+
+.agent-flow-spinner {
+  margin-left: auto;
+  animation: spin 1s linear infinite;
+}
+
+.agent-flow-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex: 1;
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-flow-empty svg {
+  opacity: 0.3;
+  color: var(--text-muted);
+}
+
+.agent-flow-nodes {
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* --- Connector line --- */
+.agent-flow-connector {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 36px;
+}
+
+/* --- Node --- */
+.agent-flow-node {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1.5px solid;
+  border-radius: 10px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.agent-flow-node.active {
+  animation: flowNodePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes flowNodePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.15); }
+  50% { box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.08); }
+}
+
+.agent-flow-node-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.agent-flow-node-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-flow-node-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.agent-flow-node-sublabel {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Grid and panel layout side-by-side --- */
+.observe-chat-layout,
+.bi-chat-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.observe-chat-main-area,
+.bi-chat-main-area {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+/* Adjust width of the flow panel inside layout */
+.observe-chat-layout .agent-flow-panel,
+.bi-chat-layout .agent-flow-panel {
+  width: 100%;
+  min-width: 0;
+  border-left: none;
+  border-right: none;
+}
+
+/* --- Responsive: hide on narrow screens --- */
+@media (max-width: 1100px) {
+  .agent-flow-panel {
+    display: none;
+  }
+
+  .bi-chat-layout,
+  .observe-chat-layout {
+    grid-template-columns: 1fr !important;
+  }
+}
