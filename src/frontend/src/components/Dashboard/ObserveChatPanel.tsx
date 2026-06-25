@@ -3,6 +3,7 @@ import { Send, Sparkles } from "lucide-react";
 import { api } from "../../services/api.service";
 import { DynamicChart, type ChartSpec } from "../Charts/DynamicChart";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { AgentFlowGraph } from "./AgentFlowGraph";
 
 interface ObserveChartSpec extends ChartSpec {
   id?: string;
@@ -82,6 +83,7 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   data?: ObserveChatResponse;
+  stages?: StreamEvent[];
 }
 
 interface ChatSession {
@@ -450,7 +452,7 @@ export function ObserveChatPanel() {
     setMessages((prev) => [
       ...prev,
       { role: "user", content: question },
-      { role: "assistant", content: "" },
+      { role: "assistant", content: "", stages: [] },
     ]);
     setProgressMessage("Dang phan tich telemetry...");
     setLoading(true);
@@ -475,6 +477,10 @@ export function ObserveChatPanel() {
       await readObserveStream(response, (event) => {
         if (event.type === "stage") {
           setProgressMessage(event.message || `Dang xu ly ${event.stage || "yeu cau"}...`);
+          setMessages((prev) => updateAssistant(prev, assistantIndex, (message) => ({
+            ...message,
+            stages: [...(message.stages || []), event],
+          })));
         }
         if (event.type === "delta" && event.text) {
           deltaBatcher.push(event.text);
@@ -512,6 +518,7 @@ export function ObserveChatPanel() {
       role: message.role,
       content: message.content || (message.role === "assistant" ? String(message.payload?.answer || fallbackAnswer(message.payload)) : ""),
       data: message.role === "assistant" ? message.payload : undefined,
+      stages: [],
     })));
   };
 
@@ -524,9 +531,10 @@ export function ObserveChatPanel() {
   };
 
   return (
-    <div className="fade-in observe-chat-page">
-      <div className="observe-chat-shell">
-        <div className="observe-chat-main">
+    <div className="fade-in observe-chat-page" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <div className="observe-chat-shell" style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <div className="observe-chat-layout" style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 340px", height: "100%" }}>
+          <div className="observe-chat-main observe-chat-main-area" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, borderRight: "1px solid var(--border-color)", overflow: "hidden" }}>
           <div className="observe-chat-toolbar">
             <div className="observe-chat-mode">
               <Sparkles size={16} />
@@ -680,7 +688,16 @@ export function ObserveChatPanel() {
             </button>
           </div>
         </div>
+        <div className="observe-chat-flow-container" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "var(--bg-card)", borderLeft: "1px solid var(--border-color)", overflowY: "auto" }}>
+          <AgentFlowGraph
+            stages={messages[messages.length - 1]?.stages || []}
+            data={messages[messages.length - 1]?.data}
+            loading={loading}
+            question={messages[messages.length - 2]?.content || ""}
+          />
+        </div>
       </div>
     </div>
-  );
+  </div>
+);
 }
