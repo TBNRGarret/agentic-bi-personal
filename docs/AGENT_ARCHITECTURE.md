@@ -73,7 +73,8 @@ answer(question)
   │     ├─ chart_agent      → NL2SQL + biểu đồ
   │     ├─ insight_agent    → phân tích root-cause
   │     ├─ forecast_agent   → dự báo
-  │     └─ qa_agent         → kiểm tra chất lượng dữ liệu
+  │     ├─ qa_agent         → kiểm tra chất lượng dữ liệu
+  │     └─ partition_agent  → phân tích partition strategy & health
   │
   ├─ 6. Summarizer: tổng hợp kết quả từ các specialist agents
   │
@@ -88,6 +89,7 @@ answer(question)
 | `insight` | `insight_agent` | Root-cause analysis |
 | `forecast` | `forecast_agent` | Dự báo |
 | `qa` | `qa_agent` | Data quality checks |
+| `partition` | `partition_agent` | Partition strategy & health analysis |
 | `dashboard` | `insight_agent + chart_agent + qa_agent` | Dashboard tổng hợp |
 | `full_report` | All 4 agents | Full report |
 
@@ -225,31 +227,72 @@ Agent riêng cho terminal commands (observation service):
        │  Slots   │  │  Plan    │  │ Selector │
        └──────────┘  └──────────┘  └──────────┘
                             │
-              ┌─────────────┼─────────────────┐
-              ▼             ▼         ▼       ▼
-       ┌──────────┐  ┌──────────┐  ┌──────┐  ┌──────┐
-       │  Chart   │  │ Insight  │  │Fore- │  │  QA  │
-       │  Agent   │  │  Agent   │  │cast  │  │Agent │
-       └────┬─────┘  └────┬─────┘  └──┬───┘  └──┬───┘
-            │             │           │         │
-            └─────────────┼───────────┼─────────┘
-                          ▼           ▼
-                   ┌────────────┐ ┌────────┐
-                   │  LLM       │ │Click-  │
-                   │  Service   │ │House   │
-                   └────────────┘ └────────┘
-                          │
-                          ▼
-                   ┌─────────────┐
-                   │ Summarizer  │
-                   │   Agent     │
-                   └──────┬──────┘
-                          │
-                          ▼
-                   ┌─────────────┐
-                   │   Response  │
-                   └─────────────┘
+          ┌─────────────────┼──────────────────────┐
+          ▼         ▼       ▼       ▼              ▼
+   ┌──────────┐ ┌──────────┐ ┌──────┐ ┌──────┐ ┌──────────┐
+   │  Chart   │ │ Insight  │ │Fore- │ │  QA  │ │Partition │
+   │  Agent   │ │  Agent   │ │cast  │ │Agent │ │  Agent   │
+   └────┬─────┘ └────┬─────┘ └──┬───┘ └──┬───┘ └────┬─────┘
+        │            │          │        │          │
+        └────────────┼──────────┼────────┼──────────┘
+                     ▼          ▼        ▼
+              ┌────────────┐ ┌────────┐ ┌──────────┐
+              │  LLM       │ │Click-  │ │ DataHub  │
+              │  Service   │ │House   │ │ Metadata │
+              └────────────┘ └────────┘ └──────────┘
+                     │
+                     ▼
+              ┌─────────────┐
+              │ Summarizer  │
+              │   Agent     │
+              └──────┬──────┘
+                     │
+                     ▼
+              ┌─────────────┐
+              │   Response  │
+              └─────────────┘
 ```
+
+---
+
+## C4 Architecture — Airflow Pipeline
+
+The pipeline is split into two DAGs for reliability:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  DAG 1: sync_external_staging_to_dwh (every 30 min)        │
+│                                                             │
+│  ┌──────────────┐   ┌─────────────────┐   ┌─────────────┐  │
+│  │ Scan MinIO   │──▶│ Validate & Load │──▶│ Trigger     │  │
+│  │ Manifests    │   │ (Stream, no     │   │ Transform   │  │
+│  │              │   │  local download)│   │ DAG         │  │
+│  └──────────────┘   └────────┬────────┘   └─────────────┘  │
+│                              │                              │
+│                     ┌────────▼────────┐                     │
+│                     │ Quarantine      │                     │
+│                     │ Failed Batches  │                     │
+│                     │ (continue flow) │                     │
+│                     └─────────────────┘                     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                    TriggerDagRunOperator
+                              │
+┌─────────────────────────────▼───────────────────────────────┐
+│  DAG 2: transform_raw_to_gold (triggered)                   │
+│                                                             │
+│  ┌────────────────┐   ┌──────────────┐   ┌──────────────┐  │
+│  │ dbt build      │──▶│ Data Quality │──▶│ Quality Gate │  │
+│  │ (raw→silver    │   │ Checks       │   │ Results      │  │
+│  │  →gold)        │   │              │   │              │  │
+│  └────────────────┘   └──────────────┘   └──────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Key design decisions:
+- **MinIO streaming**: Data is read directly via S3 API, never downloaded to local disk
+- **Batch quarantine**: Failed batches are logged as `quarantined` but pipeline continues
+- **Separated concerns**: Ingestion runs frequently; transform is triggered only on new data
 
 ---
 
@@ -268,6 +311,9 @@ src/backend/app/
 │   ├── agent_planner.py           # Agent routing table + deterministic plan
 │   ├── request_orchestrator.py    # Semantic slots extraction
 │   ├── table_selector.py          # Table selection from metadata
+│   ├── partition_manager.py       # Partition key detection + health analysis
+│   ├── partition_agent.py         # Partition analysis specialist agent
+│   ├── mock_partition_data.py     # Mock data for partition testing
 │   ├── sql_safety.py              # SQL read-only validation
 │   ├── row_security.py            # Row-level security
 │   ├── chart_spec.py              # Chart visualization spec
@@ -293,4 +339,7 @@ src/backend/app/
 │
 └── migrations/
     └── agentic_schema.sql         # DB schema
+
+dags/
+└── agentic_bi_pipeline.py         # 2 DAGs: Ingestion + Transform
 ```

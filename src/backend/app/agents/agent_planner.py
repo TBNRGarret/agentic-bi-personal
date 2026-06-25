@@ -24,6 +24,7 @@ _KNOWN_AGENTS = {agent for agents in ROUTING_TABLE.values() for agent in agents}
 def deterministic_agent_plan(
     question: str, request_plan: dict[str, Any]
 ) -> dict[str, Any]:
+    """Keyword-based intent routing — fallback when LLM planner is unavailable."""
     text = question.lower()
     slot_intent = str(
         (request_plan.get("slots") or {}).get("intent_type", {}).get("value") or ""
@@ -104,6 +105,7 @@ def validate_agent_plan(plan: Any) -> dict[str, Any]:
 
 
 def agent_plan_clarification(plan: dict[str, Any]) -> dict[str, Any]:
+    """Generate a clarification prompt when the planner cannot choose agents."""
     reason = str(plan.get("reason") or "The semantic planner could not choose agents.")
     return {
         "tool": "multi_agent_orchestrator",

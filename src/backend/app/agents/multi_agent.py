@@ -18,6 +18,7 @@ from .agent_planner import (
     validate_agent_plan as _validate_agent_plan,
 )
 from .monitoring_agent import MonitoringAgent
+from .partition_agent import PartitionAgent
 from .request_orchestrator import (
     build_request_plan,
     clarification_for,
