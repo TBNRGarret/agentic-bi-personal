@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import {
   Database, Sparkles, User, Zap, CheckCircle2, AlertCircle, Loader2,
   Workflow, Layers, Server, Activity, ShieldAlert, Cpu,
-  BarChart3, PieChart, Info, GitCommit, GitMerge,
+  BarChart3, PieChart, Info, GitCommit, GitMerge, ArrowRight,
   CornerDownRight, Terminal, X, FileCode
 } from "lucide-react";
 
@@ -859,25 +859,62 @@ export function AgentWorkflowCanvas() {
       </div>
 
       <div className="workflow-canvas-body" style={{ display: "flex", flexDirection: "row", flex: 1, minHeight: 0, width: "100%", overflow: "hidden", position: "relative" }}>
-        <div className="workflow-grid" style={{ flex: 1, minWidth: 0, overflowY: "auto", paddingRight: selectedNode ? "16px" : "0" }}>
+        <div className="workflow-grid" style={{ 
+          flex: 1, 
+          minWidth: 0, 
+          overflowY: "auto", 
+          padding: "36px 48px", 
+          paddingRight: selectedNode ? "36px" : "48px",
+          backgroundImage: "radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px)",
+          backgroundSize: "24px 24px",
+          backgroundColor: "#0b0f19",
+          display: "flex",
+          flexDirection: "column",
+          gap: "16px"
+        }}>
           {layers.map((layer, layerIndex) => {
             const nodesInLayer = filteredNodes.filter((node) => node.layer === layer);
+            const nextLayerNodes = layerIndex < layers.length - 1 ? filteredNodes.filter((node) => node.layer === layers[layerIndex + 1]) : [];
             return (
-              <div key={layer} className="workflow-layer-group">
-                <div className="workflow-layer-title">
+              <div key={layer} className="workflow-layer-group" style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
+                <div className="workflow-layer-title" style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", fontSize: "14px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.08em", color: "#a5b4fc", borderBottom: "1px solid rgba(255, 255, 255, 0.08)", paddingBottom: "10px", marginBottom: "20px" }}>
                   <CornerDownRight size={15} />
                   <span>{layer}</span>
                 </div>
-                <div className="workflow-nodes-row">
+                <div className="workflow-nodes-row" style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "28px", width: "100%", maxWidth: "1200px" }}>
                   {nodesInLayer.map((node) => {
                     const isActive = node.id === selectedId;
+                    const isConnectedTarget = selectedNode?.connections?.includes(node.label);
+                    const isConnectedSource = node.connections?.includes(selectedNode?.label || "");
+                    const highlightBorder = isActive ? "2px solid var(--card-accent, #6366f1)" : isConnectedTarget ? "2px solid #0284c7" : isConnectedSource ? "2px solid #8b5cf6" : "1px solid rgba(255, 255, 255, 0.1)";
+                    const highlightShadow = isActive ? "0 20px 30px -8px rgba(0, 0, 0, 0.6), 0 0 15px var(--card-accent, #6366f1)" : isConnectedTarget ? "0 10px 25px -5px rgba(2, 132, 199, 0.5)" : isConnectedSource ? "0 10px 25px -5px rgba(139, 92, 246, 0.5)" : "none";
+
                     return (
                       <div
                         key={node.id}
                         className={`workflow-card ${isActive ? "active" : ""}`}
-                        style={{ "--card-accent": node.accent } as React.CSSProperties}
+                        style={{ 
+                          "--card-accent": node.accent,
+                          border: highlightBorder,
+                          boxShadow: highlightShadow,
+                          background: isActive ? "rgba(30, 41, 59, 0.85)" : (isConnectedTarget || isConnectedSource) ? "rgba(30, 41, 59, 0.65)" : "rgba(30, 41, 59, 0.45)",
+                          flex: "1 1 300px",
+                          maxWidth: "380px"
+                        } as React.CSSProperties}
                         onClick={() => setSelectedId(node.id)}
                       >
+                        {isConnectedTarget && (
+                          <div className="workflow-card-connection-badge target" style={{ background: "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)", color: "#fff", fontSize: "11px", fontWeight: "700", padding: "4px 10px", borderRadius: "12px", display: "flex", alignItems: "center", gap: "6px", marginBottom: "12px", width: "fit-content", boxShadow: "0 2px 8px rgba(2, 132, 199, 0.5)" }}>
+                            <ArrowRight size={13} />
+                            <span>Được gọi bởi {selectedNode.label.split(" ")[0]}</span>
+                          </div>
+                        )}
+                        {isConnectedSource && (
+                          <div className="workflow-card-connection-badge source" style={{ background: "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)", color: "#fff", fontSize: "11px", fontWeight: "700", padding: "4px 10px", borderRadius: "12px", display: "flex", alignItems: "center", gap: "6px", marginBottom: "12px", width: "fit-content", boxShadow: "0 2px 8px rgba(139, 92, 246, 0.5)" }}>
+                            <GitCommit size={13} />
+                            <span>Gọi tới {selectedNode.label.split(" ")[0]}</span>
+                          </div>
+                        )}
                         <div className="workflow-card-header">
                           <div className="workflow-card-icon">
                             <CanvasNodeIcon name={node.iconName} accent={node.accent} />
@@ -909,12 +946,46 @@ export function AgentWorkflowCanvas() {
                   })}
                 </div>
                 {layerIndex < layers.length - 1 && (
-                  <div className="workflow-connection-bar" style={{ margin: "16px 0", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <div className="workflow-connection-line" style={{ position: "absolute", width: "100%", height: "2px", background: "linear-gradient(90deg, #6366f1 0%, #06b6d4 50%, #10b981 100%)", opacity: 0.7 }} />
-                    <div className="workflow-connection-badge" style={{ position: "relative", background: "#1e293b", color: "#38bdf8", border: "1px solid #0284c7", padding: "4px 14px", borderRadius: "20px", display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: "600", boxShadow: "0 2px 8px rgba(0,0,0,0.3)", zIndex: 2 }}>
-                      <GitMerge size={14} className="animate-pulse" />
+                  <div className="workflow-vertical-connector" style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", margin: "12px 0" }}>
+                    {/* Trunk trên */}
+                    <div style={{ width: "3px", height: "28px", background: "linear-gradient(180deg, #6366f1 0%, #06b6d4 100%)", boxShadow: "0 0 12px rgba(6, 182, 212, 0.6)", borderRadius: "2px" }} />
+                    
+                    {/* Huy hiệu HLD */}
+                    <div className="workflow-connection-badge" style={{
+                      position: "relative",
+                      background: "rgba(15, 23, 42, 0.95)",
+                      backdropFilter: "blur(12px)",
+                      color: "#38bdf8",
+                      border: "1px solid #0284c7",
+                      padding: "8px 24px",
+                      borderRadius: "30px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "13px",
+                      fontWeight: "600",
+                      boxShadow: "0 4px 20px rgba(2, 132, 199, 0.5)",
+                      zIndex: 2
+                    }}>
+                      <GitMerge size={16} className="animate-pulse" style={{ color: "#38bdf8" }} />
                       <span>{getLayerConnectionLabel(layer, layers[layerIndex + 1])}</span>
                     </div>
+
+                    {/* Trunk dưới */}
+                    <div style={{ width: "3px", height: "28px", background: "linear-gradient(180deg, #06b6d4 0%, #10b981 100%)", boxShadow: "0 0 12px rgba(16, 185, 129, 0.6)", borderRadius: "2px" }} />
+
+                    {/* Thanh ngang rẽ nhánh (branching bar) nếu layer dưới có nhiều node */}
+                    {nextLayerNodes.length > 1 && (
+                      <div style={{
+                        width: `${Math.min(85, nextLayerNodes.length * 22)}%`,
+                        maxWidth: `${(nextLayerNodes.length - 1) * 330}px`,
+                        height: "3px",
+                        background: "linear-gradient(90deg, transparent 0%, #10b981 15%, #10b981 85%, transparent 100%)",
+                        boxShadow: "0 0 12px rgba(16, 185, 129, 0.6)",
+                        marginTop: "-1px",
+                        borderRadius: "2px"
+                      }} />
+                    )}
                   </div>
                 )}
               </div>
