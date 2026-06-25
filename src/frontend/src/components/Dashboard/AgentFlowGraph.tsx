@@ -1,4 +1,10 @@
-import { Database, Sparkles, User, Zap, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { useState } from "react";
+import {
+  Database, Sparkles, User, Zap, CheckCircle2, AlertCircle, Loader2,
+  Workflow, Layers, Server, Activity, ShieldAlert, Cpu,
+  BarChart3, PieChart, Info, ArrowRight,
+  CornerDownRight, Terminal, X, FileCode
+} from "lucide-react";
 
 interface AgentFlowGraphProps {
   stages: any[];
@@ -425,6 +431,439 @@ export function AgentFlowGraph({ stages, data, loading, question }: AgentFlowGra
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/* ==========================================================================
+   Agent Workflow Canvas — High-Level Design Interactive C4 Visualization
+   ========================================================================== */
+
+interface C4NodeDef {
+  id: string;
+  label: string;
+  sublabel: string;
+  desc: string;
+  c4Level: string;
+  layer: string;
+  kind: string;
+  status: "ready" | "warning" | "error";
+  accent: string;
+  iconName: string;
+  tags: string[];
+  codeFile?: string;
+  contract?: {
+    input?: string;
+    output?: string;
+    description?: string;
+  };
+}
+
+const HIGH_LEVEL_NODES: C4NodeDef[] = [
+  {
+    id: "user",
+    label: "Web UI Client",
+    sublabel: "React + Vite SPA",
+    desc: "Người dùng đặt câu hỏi tiếng Việt tự nhiên về BI hoặc theo dõi sức khỏe hệ thống (observability).",
+    c4Level: "Person",
+    layer: "C1 Context",
+    kind: "person",
+    status: "ready",
+    accent: "#f97316",
+    iconName: "User",
+    tags: ["Vietnamese NL", "Dashboard UI", "REST / SSE"],
+    codeFile: "src/frontend/src/App.tsx",
+  },
+  {
+    id: "router",
+    label: "FastAPI Router & Context",
+    sublabel: "/api/agent/chat",
+    desc: "Tiếp nhận HTTP request, quản lý session history và structured memory qua ContextManager.",
+    c4Level: "Container",
+    layer: "API Gateway",
+    kind: "service",
+    status: "ready",
+    accent: "#6366f1",
+    iconName: "Terminal",
+    tags: ["FastAPI", "Session Memory", "Postgres Audit"],
+    codeFile: "src/backend/app/routers/query.py",
+  },
+  {
+    id: "orchestrator",
+    label: "Multi-Agent Orchestrator",
+    sublabel: "Control-Plane Agent",
+    desc: "Trích xuất semantic slots (intent, domain, metric, layer). Kiểm tra guardrail và điều phối các specialist agents.",
+    c4Level: "Component",
+    layer: "Orchestration",
+    kind: "planner",
+    status: "ready",
+    accent: "#8b5cf6",
+    iconName: "Workflow",
+    tags: ["Control Plane", "Semantic Slots", "Clarification Gate"],
+    codeFile: "src/backend/app/agents/multi_agent.py",
+    contract: {
+      input: "Natural Language Question + Active Session Context",
+      output: "Deterministic Agent Plan + Specialist Agent Responses",
+      description: "Điều phối song song các specialist agents qua asyncio.gather và quản lý luồng thực thi chính.",
+    },
+  },
+  {
+    id: "table_selector",
+    label: "DataHub Table Selector",
+    sublabel: "Metadata Ranking",
+    desc: "Truy xuất DataHub GraphQL API để chọn bảng phù hợp (gold > silver) bằng keyword & embedding ranking.",
+    c4Level: "Component",
+    layer: "Metadata",
+    kind: "datasource",
+    status: "ready",
+    accent: "#06b6d4",
+    iconName: "Database",
+    tags: ["DataHub GMS", "Schema Discovery", "Table Ranking"],
+    codeFile: "src/backend/app/agents/table_selector.py",
+  },
+  {
+    id: "chart_agent",
+    label: "Chart Agent (SQL Specialist)",
+    sublabel: "NL2SQL + Chart Spec",
+    desc: "Sinh SQL an toàn cho ClickHouse, kiểm tra read-only guardrail và trả về dữ liệu kèm biểu đồ (bar, line, pie).",
+    c4Level: "Component",
+    layer: "Specialist Agents",
+    kind: "agent",
+    status: "ready",
+    accent: "#10b981",
+    iconName: "BarChart3",
+    tags: ["NL2SQL", "ClickHouse SQL", "Dynamic Chart"],
+    codeFile: "src/backend/app/agents/chart_spec.py",
+    contract: {
+      input: "Question + Selected Tables Schema + Semantic Slots",
+      output: "Generated SQL + Result Rows + Visual Chart Spec",
+      description: "Đảm bảo SQL an toàn (chặn DDL/DML) và áp dụng Row Security theo principal.",
+    },
+  },
+  {
+    id: "insight_agent",
+    label: "Insight Agent",
+    sublabel: "Root-Cause Analysis",
+    desc: "Phân tích nguyên nhân gốc rễ (root-cause) cho latency, errors, so sánh đa chiều giữa các services và models.",
+    c4Level: "Component",
+    layer: "Specialist Agents",
+    kind: "agent",
+    status: "ready",
+    accent: "#10b981",
+    iconName: "Activity",
+    tags: ["Anomaly Detection", "Telemetry Analysis", "Root Cause"],
+    codeFile: "src/backend/app/agents/monitoring_agent.py",
+  },
+  {
+    id: "forecast_agent",
+    label: "Forecast Agent",
+    sublabel: "Time-Series Prediction",
+    desc: "Dự báo xu hướng từ dữ liệu lịch sử bằng Simple Exponential Smoothing hoặc mô hình dự báo LLM-based.",
+    c4Level: "Component",
+    layer: "Specialist Agents",
+    kind: "agent",
+    status: "ready",
+    accent: "#10b981",
+    iconName: "PieChart",
+    tags: ["Trend Forecasting", "Exponential Smoothing", "Predictive BI"],
+    codeFile: "src/backend/app/agents/multi_agent.py",
+  },
+  {
+    id: "qa_agent",
+    label: "QA Agent",
+    sublabel: "Ingestion & Audit Health",
+    desc: "Kiểm tra chất lượng dữ liệu, theo dõi các lô dữ liệu (batches) bị lỗi hoặc bị cách ly (quarantined) trong quá trình ingest.",
+    c4Level: "Component",
+    layer: "Specialist Agents",
+    kind: "agent",
+    status: "ready",
+    accent: "#10b981",
+    iconName: "ShieldAlert",
+    tags: ["Data Quality Gate", "Batch Quarantine", "Pipeline Audit"],
+    codeFile: "src/backend/app/agents/monitoring_agent.py",
+  },
+  {
+    id: "partition_agent",
+    label: "Partition Agent",
+    sublabel: "Partition Strategy Analysis",
+    desc: "Tự động phân tích chiến lược phân vùng, kiểm tra partition keys (daily/monthly), phát hiện skew và partition rỗng qua system.parts.",
+    c4Level: "Component",
+    layer: "Specialist Agents",
+    kind: "partition",
+    status: "ready",
+    accent: "#f59e0b",
+    iconName: "Layers",
+    tags: ["Partition Pruning", "ClickHouse Parts", "Skew Detection"],
+    codeFile: "src/backend/app/agents/partition_agent.py",
+    contract: {
+      input: "Target Tables + Time Range Slot",
+      output: "PartitionHealthReport + Pruning Recommendations",
+      description: "Tương tác trực tiếp với PartitionManager để tối ưu hóa truy vấn OLAP quy mô lớn.",
+    },
+  },
+  {
+    id: "minio",
+    label: "MinIO Object Storage",
+    sublabel: "Raw Landing Zone",
+    desc: "Lưu trữ các file raw JSONL và manifests từ nguồn xuất. Được Airflow streaming đọc trực tiếp không cần tải về local.",
+    c4Level: "Container",
+    layer: "Data Pipeline",
+    kind: "storage",
+    status: "ready",
+    accent: "#3b82f6",
+    iconName: "Server",
+    tags: ["S3 Streaming", "Raw JSONL", "Manifest Store"],
+    codeFile: "dags/agentic_bi_pipeline.py",
+  },
+  {
+    id: "airflow",
+    label: "Airflow Orchestration",
+    sublabel: "Ingestion & Transform DAGs",
+    desc: "Quản lý 2 DAG độc lập: sync_external_staging_to_dwh (chạy mỗi 30 phút, quarantine lỗi) và transform_raw_to_gold (dbt build).",
+    c4Level: "Container",
+    layer: "Data Pipeline",
+    kind: "airflow",
+    status: "ready",
+    accent: "#ec4899",
+    iconName: "Cpu",
+    tags: ["Decoupled DAGs", "Continuous Ingest", "TriggerDagRun"],
+    codeFile: "dags/agentic_bi_pipeline.py",
+  },
+  {
+    id: "clickhouse",
+    label: "ClickHouse OLAP",
+    sublabel: "Analytics & Marts",
+    desc: "Hệ quản trị cơ sở dữ liệu chính cho Agentic BI, lưu trữ vsf_raw, vsf_stg, vsf_mart và bảng quản trị lô import.",
+    c4Level: "Data",
+    layer: "Database",
+    kind: "database",
+    status: "ready",
+    accent: "#ef4444",
+    iconName: "Database",
+    tags: ["OLAP Columnar", "Gold Analytics", "System Parts"],
+    codeFile: "src/backend/app/connectors/clickhouse.py",
+  },
+  {
+    id: "summarizer",
+    label: "Summarizer Agent",
+    sublabel: "Synthesizer & Response",
+    desc: "Tổng hợp kết quả từ các specialist agents, kết hợp bảng dữ liệu, biểu đồ và sinh câu trả lời tự nhiên hoàn chỉnh.",
+    c4Level: "Component",
+    layer: "Synthesis",
+    kind: "result",
+    status: "ready",
+    accent: "#10b981",
+    iconName: "Sparkles",
+    tags: ["LLM Synthesis", "Final Grounded Answer", "Markdown UI"],
+    codeFile: "src/backend/app/agents/multi_agent.py",
+  },
+];
+
+function CanvasNodeIcon({ name, accent }: { name: string; accent: string }) {
+  switch (name) {
+    case "User": return <User size={22} color={accent} />;
+    case "Terminal": return <Terminal size={22} color={accent} />;
+    case "Workflow": return <Workflow size={22} color={accent} />;
+    case "Database": return <Database size={22} color={accent} />;
+    case "BarChart3": return <BarChart3 size={22} color={accent} />;
+    case "Activity": return <Activity size={22} color={accent} />;
+    case "PieChart": return <PieChart size={22} color={accent} />;
+    case "ShieldAlert": return <ShieldAlert size={22} color={accent} />;
+    case "Layers": return <Layers size={22} color={accent} />;
+    case "Server": return <Server size={22} color={accent} />;
+    case "Cpu": return <Cpu size={22} color={accent} />;
+    case "Sparkles": return <Sparkles size={22} color={accent} />;
+    default: return <Workflow size={22} color={accent} />;
+  }
+}
+
+export function AgentWorkflowCanvas() {
+  const [selectedId, setSelectedId] = useState<string>("orchestrator");
+  const [viewMode, setViewMode] = useState<"all" | "agents" | "pipeline">("all");
+
+  const selectedNode = HIGH_LEVEL_NODES.find((node) => node.id === selectedId) || HIGH_LEVEL_NODES[2];
+
+  const filteredNodes = HIGH_LEVEL_NODES.filter((node) => {
+    if (viewMode === "agents") {
+      return ["Orchestration", "Specialist Agents", "Synthesis"].includes(node.layer);
+    }
+    if (viewMode === "pipeline") {
+      return ["Data Pipeline", "Database", "Metadata"].includes(node.layer);
+    }
+    return true;
+  });
+
+  const layers = Array.from(new Set(filteredNodes.map((node) => node.layer)));
+
+  return (
+    <div className="workflow-canvas-container fade-in">
+      <div className="workflow-canvas-header">
+        <div className="workflow-canvas-title-group">
+          <div className="workflow-canvas-title">
+            <Workflow size={24} />
+            <span>Agent Workflow & C4 Architecture</span>
+          </div>
+          <div className="workflow-canvas-subtitle">
+            Mô hình thiết kế High-Level Design: Điều phối Multi-Agent, Phân vùng ClickHouse & Luồng Airflow
+          </div>
+        </div>
+        <div className="workflow-canvas-toolbar">
+          <button
+            type="button"
+            className={`workflow-mode-btn ${viewMode === "all" ? "active" : ""}`}
+            onClick={() => setViewMode("all")}
+          >
+            <Layers size={15} />
+            <span>Toàn bộ hệ thống</span>
+          </button>
+          <button
+            type="button"
+            className={`workflow-mode-btn ${viewMode === "agents" ? "active" : ""}`}
+            onClick={() => setViewMode("agents")}
+          >
+            <Workflow size={15} />
+            <span>Luồng Agents</span>
+          </button>
+          <button
+            type="button"
+            className={`workflow-mode-btn ${viewMode === "pipeline" ? "active" : ""}`}
+            onClick={() => setViewMode("pipeline")}
+          >
+            <Server size={15} />
+            <span>Luồng Dữ Liệu</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="workflow-canvas-body">
+        <div className="workflow-grid">
+          {layers.map((layer, layerIndex) => {
+            const nodesInLayer = filteredNodes.filter((node) => node.layer === layer);
+            return (
+              <div key={layer} className="workflow-layer-group">
+                <div className="workflow-layer-title">
+                  <CornerDownRight size={15} />
+                  <span>{layer}</span>
+                </div>
+                <div className="workflow-nodes-row">
+                  {nodesInLayer.map((node) => {
+                    const isActive = node.id === selectedId;
+                    return (
+                      <div
+                        key={node.id}
+                        className={`workflow-card ${isActive ? "active" : ""}`}
+                        style={{ "--card-accent": node.accent } as React.CSSProperties}
+                        onClick={() => setSelectedId(node.id)}
+                      >
+                        <div className="workflow-card-header">
+                          <div className="workflow-card-icon">
+                            <CanvasNodeIcon name={node.iconName} accent={node.accent} />
+                          </div>
+                          <div className="workflow-card-meta">
+                            <span className="workflow-card-c4">{node.c4Level}</span>
+                            <span className={`workflow-card-status ${node.status}`}>
+                              {node.status === "ready" && "● Ready"}
+                              {node.status === "warning" && "▲ Needs Attention"}
+                              {node.status === "error" && "■ Blocked"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="workflow-card-title">{node.label}</div>
+                        <div className="workflow-card-desc">{node.desc}</div>
+                        <div className="workflow-card-tags">
+                          {node.tags.map((tag) => (
+                            <span key={tag} className="workflow-tag">{tag}</span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {layerIndex < layers.length - 1 && (
+                  <div className="workflow-connection-bar">
+                    <div className="workflow-connection-line" />
+                    <div className="workflow-connection-badge">
+                      <ArrowRight size={14} />
+                      <span>Luồng dữ liệu & Điều phối</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {selectedNode && (
+          <div className="workflow-inspector">
+            <div className="workflow-inspector-header">
+              <div className="workflow-inspector-title">
+                <Info size={18} color={selectedNode.accent} />
+                <span>Chi tiết Component</span>
+              </div>
+              <button
+                type="button"
+                className="workflow-inspector-close"
+                onClick={() => setSelectedId("")}
+                title="Đóng"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="workflow-inspector-body">
+              <div className="inspector-section">
+                <div className="inspector-section-title">Thông tin chung</div>
+                <div className="inspector-card">
+                  <div className="inspector-item">
+                    <strong>Tên:</strong> <span>{selectedNode.label}</span>
+                  </div>
+                  <div className="inspector-item">
+                    <strong>C4 Level:</strong> <span>{selectedNode.c4Level}</span>
+                  </div>
+                  <div className="inspector-item">
+                    <strong>Layer:</strong> <span>{selectedNode.layer}</span>
+                  </div>
+                  <div className="inspector-item">
+                    <strong>Vai trò:</strong> <span>{selectedNode.desc}</span>
+                  </div>
+                </div>
+              </div>
+
+              {selectedNode.codeFile && (
+                <div className="inspector-section">
+                  <div className="inspector-section-title">
+                    <FileCode size={14} />
+                    <span>File Triển Khai</span>
+                  </div>
+                  <div className="inspector-code">{selectedNode.codeFile}</div>
+                </div>
+              )}
+
+              {selectedNode.contract && (
+                <div className="inspector-section">
+                  <div className="inspector-section-title">Data Contract & Đặc tả</div>
+                  <div className="inspector-card">
+                    {selectedNode.contract.input && (
+                      <div className="inspector-item">
+                        <strong>Input:</strong> <span>{selectedNode.contract.input}</span>
+                      </div>
+                    )}
+                    {selectedNode.contract.output && (
+                      <div className="inspector-item">
+                        <strong>Output:</strong> <span>{selectedNode.contract.output}</span>
+                      </div>
+                    )}
+                    {selectedNode.contract.description && (
+                      <div className="inspector-item">
+                        <strong>Luồng thực thi:</strong> <span>{selectedNode.contract.description}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
