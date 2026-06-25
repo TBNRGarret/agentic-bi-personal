@@ -73,6 +73,18 @@ try {
     & $DatahubCmd ingest -c metadata/recipes/clickhouse_recipe.yml
     if ($LASTEXITCODE -ne 0) { throw "ClickHouse ingestion failed." }
 
+    if (Test-Path ".env") {
+        # Load env variables for Metabase ingestion if run locally
+        Get-Content .env | Where-Object { $_ -match "^(METABASE_ADMIN_EMAIL|METABASE_ADMIN_PASSWORD)=" } | ForEach-Object {
+            $parts = $_ -split '=', 2
+            [System.Environment]::SetEnvironmentVariable($parts[0], $parts[1].Trim())
+        }
+    }
+
+    Write-Host "[DATAHUB] Ingesting Metabase metadata..." -ForegroundColor Cyan
+    & $DatahubCmd ingest -c metadata/recipes/metabase_recipe.yml
+    if ($LASTEXITCODE -ne 0) { throw "Metabase ingestion failed." }
+
     Write-Host "[DATAHUB] Publishing mart freshness properties..." -ForegroundColor Cyan
     & $PythonCmd metadata/scripts/publish_freshness.py
     if ($LASTEXITCODE -ne 0) { throw "freshness publishing failed." }

@@ -18,7 +18,7 @@ Usage:
 from fabric import Connection, task
 from invoke import Collection, run as local_run
 PROJECT_DIR = "agentic-bi"
-BRANCH = "dev-agent"
+BRANCH = "dev"
 COMPOSE = "docker compose -f docker-compose.yml -f docker-compose.agentic-ui.yml"
 
 

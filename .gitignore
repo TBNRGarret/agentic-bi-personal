@@ -14,6 +14,7 @@ __pycache__/
 .env
 .env.observation
 .env.datahub-vps
+.env.agentic-ui
 .venv/
 venv/
 *.swp
