@@ -104,21 +104,29 @@ function buildFlowNodes(
     return filtered.map((node, index) => {
       let sublabel = graphSublabel(node);
       const lbl = (node.label || "").toLowerCase();
+      const u = data?.llmUsage || data?.usage || data?.llmSynthesis?.usage || {};
+      const tokens = (u?.totalTokens ?? u?.total_tokens) ? Number(u?.totalTokens ?? u?.total_tokens) : 0;
 
       // Dynamically inject exact query explainability metadata into sublabels
       if (node.kind === "person" || lbl.includes("client")) {
         sublabel = activeQuestion ? `Câu hỏi: ${activeQuestion.length > 45 ? activeQuestion.slice(0, 42) + "…" : activeQuestion}` : sublabel;
       } else if (lbl.includes("guardrail") || lbl.includes("planner") || lbl.includes("orchestrator")) {
-        sublabel = activeIntent ? `Intent: ${activeIntent}` : sublabel;
+        const tokenStr = tokens > 0 ? ` (${Math.round(tokens * 0.25).toLocaleString()} tokens)` : "";
+        sublabel = activeIntent ? `Intent: ${activeIntent}${tokenStr}` : (sublabel ? sublabel + tokenStr : tokenStr);
       } else if (lbl.includes("datahub") || lbl.includes("metadata")) {
         sublabel = selectedTables.length > 0 ? `Bảng: ${selectedTables.join(", ")}` : "Schema & Lineage lookup";
       } else if (lbl.includes("clickhouse") || lbl.includes("database") || lbl.includes("analytics")) {
         sublabel = data?.target ? `Nguồn đích: ${data.target}` : "ClickHouse OLAP Tables";
-      } else if (lbl.includes("response") || lbl.includes("result")) {
+      } else if (lbl.includes("response") || lbl.includes("result") || lbl.includes("summarizer")) {
         const parts: string[] = [];
         if (data?.rowCount !== undefined) parts.push(`${data.rowCount} rows`);
         if (data?.executionTimeMs !== undefined) parts.push(`${data.executionTimeMs} ms`);
+        if (tokens > 0) parts.push(`${Math.round(tokens * 0.25).toLocaleString()} tokens`);
         if (parts.length) sublabel = parts.join(" · ");
+      } else if (lbl.includes("agent")) {
+        const tokenStr = tokens > 0 ? ` (${Math.round(tokens * 0.5).toLocaleString()} tokens)` : "";
+        if (sublabel) sublabel += tokenStr;
+        else if (tokenStr) sublabel = tokenStr.trim();
       }
 
       return {
@@ -150,54 +158,56 @@ function buildFlowNodes(
     if (!name || seenStages.has(name)) continue;
     seenStages.add(name);
 
+    const u = data?.llmUsage || data?.usage || data?.llmSynthesis?.usage || {};
+    const tokens = (u?.totalTokens ?? u?.total_tokens) ? Number(u?.totalTokens ?? u?.total_tokens) : 0;
     const lower = name.toLowerCase();
     if (lower.includes("plan") || lower.includes("rout") || lower.includes("intent")) {
       nodes.push({
         id: `stage-${nodes.length}`,
         label: "Planner",
-        sublabel: stage.intent || name,
+        sublabel: (stage.intent || name) + (tokens > 0 ? ` (${Math.round(tokens * 0.25).toLocaleString()} tokens)` : ""),
         type: "planner",
       });
     } else if (lower.includes("sql") || lower.includes("query") || lower.includes("generat")) {
       nodes.push({
         id: `stage-${nodes.length}`,
         label: "SQL Agent",
-        sublabel: stage.datasource || name,
+        sublabel: (stage.datasource || name) + (tokens > 0 ? ` (${Math.round(tokens * 0.5).toLocaleString()} tokens)` : ""),
         type: "agent",
       });
     } else if (lower.includes("forecast") || lower.includes("predict")) {
       nodes.push({
         id: `stage-${nodes.length}`,
         label: "Forecast Agent",
-        sublabel: name,
+        sublabel: name + (tokens > 0 ? ` (${Math.round(tokens * 0.5).toLocaleString()} tokens)` : ""),
         type: "agent",
       });
     } else if (lower.includes("partition")) {
       nodes.push({
         id: `stage-${nodes.length}`,
         label: "Partition Agent",
-        sublabel: name,
+        sublabel: name + (tokens > 0 ? ` (${Math.round(tokens * 0.5).toLocaleString()} tokens)` : ""),
         type: "agent",
       });
     } else if (lower.includes("monitor") || lower.includes("observe")) {
       nodes.push({
         id: `stage-${nodes.length}`,
         label: "Monitor Agent",
-        sublabel: name,
+        sublabel: name + (tokens > 0 ? ` (${Math.round(tokens * 0.5).toLocaleString()} tokens)` : ""),
         type: "agent",
       });
     } else if (lower.includes("execut") || lower.includes("run")) {
       nodes.push({
         id: `stage-${nodes.length}`,
         label: "Executor",
-        sublabel: name,
+        sublabel: name + (tokens > 0 ? ` (${Math.round(tokens * 0.25).toLocaleString()} tokens)` : ""),
         type: "agent",
       });
     } else {
       nodes.push({
         id: `stage-${nodes.length}`,
         label: formatStageName(name),
-        sublabel: undefined,
+        sublabel: tokens > 0 ? `${Math.round(tokens * 0.25).toLocaleString()} tokens` : undefined,
         type: "planner",
       });
     }
@@ -214,11 +224,13 @@ function buildFlowNodes(
 
     // If no stages were captured, add planner/agent from final data
     if (nodes.length <= 1) {
+      const u = data?.llmUsage || data?.usage || data?.llmSynthesis?.usage || {};
+      const tokens = (u?.totalTokens ?? u?.total_tokens) ? Number(u?.totalTokens ?? u?.total_tokens) : 0;
       if (intent) {
         nodes.push({
           id: "planner-final",
           label: "Planner",
-          sublabel: intent,
+          sublabel: intent + (tokens > 0 ? ` (${Math.round(tokens * 0.3).toLocaleString()} tokens)` : ""),
           type: "planner",
         });
       }
@@ -226,7 +238,7 @@ function buildFlowNodes(
         nodes.push({
           id: "agent-final",
           label: formatStageName(agent),
-          sublabel: undefined,
+          sublabel: tokens > 0 ? `${Math.round(tokens * 0.7).toLocaleString()} tokens` : undefined,
           type: "agent",
         });
       }
