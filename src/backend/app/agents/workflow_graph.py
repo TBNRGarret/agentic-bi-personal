@@ -166,6 +166,7 @@ def build_workflow_graph(
     add_edge("clickhouse_raw", "dbt", "feeds transforms")
     add_edge("dbt", "clickhouse_mart", "builds silver/gold")
     add_edge("clickhouse_mart", "datahub", "publishes metadata")
+    add_edge("datahub", "observation_service", "catalog available")
     add_edge("user", "observation_service", "asks question")
     add_edge("observation_service", "guardrail", "extracts slots")
 
@@ -201,6 +202,7 @@ def build_workflow_graph(
     )
     add_edge("guardrail", "datahub", "fetches catalog context")
     add_edge("datahub", "planner", "returns metadata")
+    add_edge("guardrail", "planner", "plans with catalog guardrail")
 
     previous = "planner"
     for agent in agents:

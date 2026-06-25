@@ -321,7 +321,7 @@ def validate_records(records: list[dict], *, source_app_id: str, source_table: s
     dag_id="agentic_bi_pipeline",
     default_args=default_args,
     description="End-to-end MinIO raw batch pipeline to vsf_mart with quality gate",
-    schedule="0 0 * * *",
+    schedule="*/15 * * * *",
     catchup=False,
     tags=["agentic_bi", "pipeline"],
 )

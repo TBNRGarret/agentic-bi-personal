@@ -15,12 +15,46 @@ interface FlowNode {
   active?: boolean;
 }
 
+interface WorkflowGraphNode {
+  id?: string;
+  label?: string;
+  sublabel?: string;
+  kind?: string;
+  c4Level?: string;
+  layer?: string;
+  status?: string;
+}
+
+interface WorkflowGraphEdge {
+  from?: string;
+  to?: string;
+  label?: string;
+}
+
+interface WorkflowGraph {
+  title?: string;
+  notation?: string;
+  nodes?: WorkflowGraphNode[];
+  edges?: WorkflowGraphEdge[];
+}
+
 function buildFlowNodes(
   stages: any[],
   data?: any,
   loading?: boolean,
   question?: string,
+  workflowGraph?: WorkflowGraph,
 ): FlowNode[] {
+  if (workflowGraph?.nodes?.length) {
+    return workflowGraph.nodes.map((node, index) => ({
+      id: node.id || "workflow-" + index,
+      label: node.label || formatStageName(node.kind || "workflow"),
+      sublabel: graphSublabel(node),
+      type: graphNodeType(node),
+      active: Boolean(loading && index === (workflowGraph.nodes?.length || 0) - 1),
+    }));
+  }
+
   const nodes: FlowNode[] = [];
 
   // 1. User query node
@@ -164,6 +198,37 @@ function buildFlowNodes(
   return nodes;
 }
 
+function getWorkflowGraph(data?: any): WorkflowGraph | undefined {
+  const graph = data?.workflowGraph;
+  if (!graph || typeof graph !== "object" || !Array.isArray(graph.nodes)) {
+    return undefined;
+  }
+  return graph as WorkflowGraph;
+}
+
+function graphNodeType(node: WorkflowGraphNode): FlowNode["type"] {
+  const status = String(node.status || "").toLowerCase();
+  const kind = String(node.kind || "").toLowerCase();
+  if (status === "error" || kind === "error") return "error";
+  if (kind === "person") return "user";
+  if (["database", "storage", "datahub", "source"].includes(kind)) return "datasource";
+  if (kind === "clarification") return "planner";
+  if (kind === "result") return "result";
+  if (["planner", "guardrail", "service", "airflow", "transform"].includes(kind)) return "planner";
+  return "agent";
+}
+
+function graphSublabel(node: WorkflowGraphNode): string | undefined {
+  const meta = [node.layer, node.c4Level].filter(Boolean).join(" / ");
+  const text = String(node.sublabel || "").trim();
+  if (meta && text) return meta + " - " + text;
+  return meta || text || undefined;
+}
+
+function graphEdgeLabel(graph: WorkflowGraph | undefined, from: string, to: string): string | undefined {
+  return graph?.edges?.find((edge) => edge.from === from && edge.to === to)?.label;
+}
+
 function formatStageName(name: string): string {
   return name
     .replace(/_/g, " ")
@@ -219,7 +284,9 @@ const NODE_COLORS: Record<
   },
 };
 
-function getConnectorLabel(prevNode: FlowNode, currNode: FlowNode): string {
+function getConnectorLabel(prevNode: FlowNode, currNode: FlowNode, graph?: WorkflowGraph): string {
+  const graphLabel = graphEdgeLabel(graph, prevNode.id, currNode.id);
+  if (graphLabel) return graphLabel;
   if (prevNode.type === "user") return "analyzes request";
   if (prevNode.type === "planner") {
     if (currNode.type === "agent") return "routes to agent";
@@ -250,7 +317,8 @@ function NodeIcon({ type, size = 14 }: { type: FlowNode["type"]; size?: number }
 }
 
 export function AgentFlowGraph({ stages, data, loading, question }: AgentFlowGraphProps) {
-  const nodes = buildFlowNodes(stages || [], data, loading, question);
+  const workflowGraph = getWorkflowGraph(data);
+  const nodes = buildFlowNodes(stages || [], data, loading, question, workflowGraph);
 
   if (nodes.length === 0) {
     return (
@@ -271,7 +339,7 @@ export function AgentFlowGraph({ stages, data, loading, question }: AgentFlowGra
     <div className="agent-flow-panel">
       <div className="agent-flow-header">
         <Zap size={14} />
-        <span>Agent Flow</span>
+        <span>{workflowGraph?.notation ? "Agent Flow - " + workflowGraph.notation : "Agent Flow"}</span>
         {loading && <Loader2 size={14} className="agent-flow-spinner" />}
       </div>
       <div className="agent-flow-nodes">
@@ -280,7 +348,7 @@ export function AgentFlowGraph({ stages, data, loading, question }: AgentFlowGra
           return (
             <div key={node.id}>
               {/* Connector line with Arrow and Label */}
-              {index > 0 && (
+              {index > 0 && (!workflowGraph || graphEdgeLabel(workflowGraph, nodes[index - 1].id, node.id)) && (
                 <div className="agent-flow-connector">
                   <svg width="100%" height="36" style={{ overflow: "visible" }}>
                     <defs>
@@ -327,7 +395,7 @@ export function AgentFlowGraph({ stages, data, loading, question }: AgentFlowGra
                       fontWeight="600"
                       style={{ letterSpacing: "0.02em" }}
                     >
-                      {getConnectorLabel(nodes[index - 1], node)}
+                      {getConnectorLabel(nodes[index - 1], node, workflowGraph)}
                     </text>
                   </svg>
                 </div>

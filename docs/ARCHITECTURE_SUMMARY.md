@@ -118,7 +118,7 @@ Postgres DWH ---export---> MinIO (JSONL) ---airflow---> ClickHouse vsf_raw
 
 | DAG ID | Lịch | Mô tả |
 |--------|------|-------|
-| `agentic_bi_pipeline` | `0 0 * * *` (hàng ngày) | Pipeline chính: MinIO → ClickHouse → dbt → Quality Gates |
+| `agentic_bi_pipeline` | `*/15 * * * *` (mỗi 15 phút) | Pipeline chính: MinIO → ClickHouse → dbt → Quality Gates |
 | `smoke_dag` | Thủ công | Kiểm tra kết nối ClickHouse & MinIO |
 
 ### DataHub (Metadata Store)
