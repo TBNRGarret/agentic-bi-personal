@@ -8,12 +8,14 @@ ROUTING_TABLE: dict[str, list[str]] = {
     "chart": ["chart_agent"],
     "forecast": ["forecast_agent"],
     "qa": ["qa_agent"],
+    "partition": ["partition_agent"],
     "dashboard": ["insight_agent", "chart_agent", "qa_agent"],
     "full_report": [
         "insight_agent",
         "chart_agent",
         "forecast_agent",
         "qa_agent",
+        "partition_agent",
     ],
 }
 _KNOWN_AGENTS = {agent for agents in ROUTING_TABLE.values() for agent in agents}
@@ -33,6 +35,11 @@ def deterministic_agent_plan(
         intent = "full_report"
     elif "dashboard" in text or slot_intent == "dashboard":
         intent = "dashboard"
+    elif slot_intent == "partition" or any(
+        term in text
+        for term in ("partition", "phan vung", "phan chia du lieu", "data partitioning")
+    ):
+        intent = "partition"
     elif any(
         term in text
         for term in ("forecast", "du bao", "capacity", "next 7", "next 30")
@@ -104,7 +111,7 @@ def agent_plan_clarification(plan: dict[str, Any]) -> dict[str, Any]:
         "question": (
             "I could not choose the right agent set with enough confidence. "
             "Please clarify whether you want a chart, root-cause insight, forecast, "
-            "QA check, dashboard, or full report."
+            "QA check, partition analysis, dashboard, or full report."
         ),
         "reason": reason,
         "options": [
@@ -112,6 +119,7 @@ def agent_plan_clarification(plan: dict[str, Any]) -> dict[str, Any]:
             _option("Insight", "agent insight", "Analyze latency/error drivers."),
             _option("Forecast", "agent forecast", "Fit a forecast from historical metrics."),
             _option("QA", "agent qa", "Check ingestion and audit health."),
+            _option("Partition", "agent partition", "Analyze partition health and pruning."),
             _option("Dashboard", "agent dashboard", "Run insight, chart, and QA agents."),
             _option("Full report", "agent full_report", "Run all specialist agents."),
         ],

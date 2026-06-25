@@ -27,6 +27,7 @@ from .request_orchestrator import (
 from .row_security import apply_row_security
 from .sql_safety import validate_readonly_sql
 from .table_selector import TableSelector
+from .workflow_graph import build_workflow_graph
 
 EventSink = Callable[[dict[str, Any]], None]
 AgentStatus = Literal["success", "partial", "failed"]
@@ -154,6 +155,8 @@ class MultiAgentOrchestrator:
         self.llm = llm or LlmService(settings)
         self.chart_agent = ChartAgent(chart_agent)
         metadata = getattr(chart_agent, "metadata", None)
+        from .partition_agent import PartitionAgent
+
         self.specialists = {
             "chart_agent": self.chart_agent,
             "insight_agent": InsightAgent(
@@ -174,6 +177,11 @@ class MultiAgentOrchestrator:
                 chart_agent.postgres,
                 self.settings,
                 self.llm,
+                metadata=metadata,
+            ),
+            "partition_agent": PartitionAgent(
+                chart_agent.clickhouse,
+                self.settings,
                 metadata=metadata,
             ),
         }
@@ -297,6 +305,7 @@ class MultiAgentOrchestrator:
             if response.status == "failed"
         ]
         primary = _primary_artifact_result(responses)
+        selected_tables = _merge_selected_tables(responses, primary)
         status = (
             "success"
             if accepted and all(response.status == "success" for response in responses)
@@ -322,7 +331,7 @@ class MultiAgentOrchestrator:
             if primary
             else {"type": "table", "reason": "No chart artifact was returned"},
             "sql": primary.get("sql") if primary else None,
-            "selectedTables": _merge_selected_tables(responses, primary),
+            "selectedTables": selected_tables,
             "searchedTables": primary.get("searchedTables") if primary else None,
             "attempts": primary.get("attempts", []) if primary else [],
             "metadataContext": primary.get("metadataContext") if primary else None,
@@ -342,6 +351,21 @@ class MultiAgentOrchestrator:
             },
             "agentResponses": [response.to_dict() for response in responses],
             "agentsUsed": agent_names,
+            "workflowGraph": build_workflow_graph(
+                question=question,
+                target=primary.get("target", target) if primary else target,
+                status=status,
+                request_plan={
+                    **request_plan,
+                    "routeIntent": route_intent,
+                },
+                agent_plan=agent_plan,
+                agent_names=agent_names,
+                responses=responses,
+                primary=primary,
+                selected_tables=selected_tables,
+                execution_time_ms=_elapsed_ms(started),
+            ),
             "warnings": warnings,
             "executionTimeMs": _elapsed_ms(started),
             "llmUsage": _merge_agent_usage(responses, primary, self.summarizer.last_usage),
@@ -372,10 +396,9 @@ class MultiAgentOrchestrator:
         request_plan: dict[str, Any],
     ) -> dict[str, Any]:
         if not self.settings.llm_configured and isinstance(self.llm, LlmService):
-            return {
-                "status": "unavailable",
-                "reason": "No semantic agent planner is configured.",
-            }
+            return _force_request_plan_route(
+                question, request_plan, _deterministic_agent_plan(question, request_plan)
+            )
         planner = getattr(self.llm, "plan_agents", None)
         if planner is None:
             return _force_request_plan_route(
@@ -395,6 +418,8 @@ class MultiAgentOrchestrator:
             fallback["reason"] = str(exc)[:240]
             return _force_request_plan_route(question, request_plan, fallback)
         validated = _validate_agent_plan(raw_plan)
+        if validated.get("status") == "low_confidence":
+            return validated
         plan = (
             validated
             if validated.get("status") == "success"
@@ -425,6 +450,14 @@ class MultiAgentOrchestrator:
             "rowCount": 0,
             "attempts": [],
             "selectedTables": [],
+            "workflowGraph": build_workflow_graph(
+                question=question,
+                target=target,
+                status="needs_clarification",
+                request_plan=request_plan,
+                clarification=clarification,
+                execution_time_ms=_elapsed_ms(started),
+            ),
             "executionTimeMs": _elapsed_ms(started),
         }
 

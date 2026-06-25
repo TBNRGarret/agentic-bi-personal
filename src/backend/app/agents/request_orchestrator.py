@@ -82,6 +82,7 @@ def clarification_for(plan: dict[str, Any]) -> dict[str, Any] | None:
                 _option("Xu hướng", "intent time series", "Theo dõi thay đổi theo thời gian."),
                 _option("So sánh", "intent aggregation", "So sánh theo service, model hoặc nguồn."),
                 _option("Chi tiết", "intent lookup", "Xem các bản ghi hoặc kết quả cụ thể."),
+                _option("Partition", "intent partition", "Kiểm tra partition, pruning và skew."),
             ],
         },
         "domain": {
@@ -198,6 +199,17 @@ def _intent_slot(text: str) -> dict[str, Any]:
             ),
         ),
         (
+            "partition",
+            (
+                "partition",
+                "partitioning",
+                "phan vung",
+                "phan chia du lieu",
+                "data partitioning",
+                "partition health",
+            ),
+        ),
+        (
             "lookup",
             (
                 "show",
@@ -272,7 +284,23 @@ def _domain_slot(text: str) -> dict[str, Any]:
         ),
         (
             "ingestion",
-            ("ingestion", "pipeline", "batch", "etl", "loaded", "quarantine"),
+            (
+                "ingestion",
+                "pipeline",
+                "batch",
+                "etl",
+                "loaded",
+                "quarantine",
+                "airflow",
+                "minio",
+                "datahub",
+                "import batch",
+                "failed batch",
+                "raw_ingestion_batches",
+                "partition",
+                "partitioning",
+                "phan vung",
+            ),
         ),
         (
             "agent_operations",
@@ -294,6 +322,30 @@ def _metric_slot(text: str) -> dict[str, Any]:
         ("tokens", ("token", "usage")),
         ("request_count", ("request", "requests", "so request", "query count")),
         ("throughput", ("throughput", "loaded row")),
+        (
+            "pipeline_health",
+            (
+                "airflow",
+                "minio",
+                "datahub",
+                "pipeline",
+                "ingestion",
+                "batch",
+                "failed batch",
+                "import batch",
+                "quarantine",
+            ),
+        ),
+        (
+            "partition_health",
+            (
+                "partition",
+                "partitioning",
+                "phan vung",
+                "phan chia du lieu",
+                "data partitioning",
+            ),
+        ),
         ("health", ("health", "suc khoe")),
         ("trace_count", ("trace count", "so trace")),
     )

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS vsf_raw.raw_ingestion_batches (
     error_message Nullable(String),
     created_at DateTime64(6, 'UTC')
 ) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(created_at)
 ORDER BY (created_at, batch_id, source_app_id, source_table);
 
 CREATE TABLE IF NOT EXISTS vsf_raw.signoz_logs (
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS vsf_raw.signoz_logs (
     batch_id UUID,
     ingested_at DateTime64(6, 'UTC')
 ) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, source_app_id, log_id);
 
 CREATE TABLE IF NOT EXISTS vsf_raw.signoz_traces (
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS vsf_raw.signoz_traces (
     batch_id UUID,
     ingested_at DateTime64(6, 'UTC')
 ) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, source_app_id, trace_id, span_id);
 
 CREATE TABLE IF NOT EXISTS vsf_raw.signoz_metrics (
@@ -60,6 +63,7 @@ CREATE TABLE IF NOT EXISTS vsf_raw.signoz_metrics (
     batch_id UUID,
     ingested_at DateTime64(6, 'UTC')
 ) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, source_app_id, metric_name, metric_id);
 
 CREATE TABLE IF NOT EXISTS vsf_raw.langfuse_generations (
@@ -80,6 +84,7 @@ CREATE TABLE IF NOT EXISTS vsf_raw.langfuse_generations (
     batch_id UUID,
     ingested_at DateTime64(6, 'UTC')
 ) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, source_app_id, generation_id);
 
 CREATE TABLE IF NOT EXISTS vsf_raw.user_interactions (
@@ -102,6 +107,7 @@ CREATE TABLE IF NOT EXISTS vsf_raw.user_interactions (
     batch_id UUID,
     ingested_at DateTime64(6, 'UTC')
 ) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(started_at)
 ORDER BY (started_at, source_app_id, interaction_id);
 
 CREATE TABLE IF NOT EXISTS vsf_stg.staging_llm_generations (
@@ -159,4 +165,5 @@ CREATE TABLE IF NOT EXISTS vsf_mart.gold_app_daily_cost (
     error_count Int64,
     error_rate Float64
 ) ENGINE = ReplacingMergeTree()
+PARTITION BY toYYYYMM(date)
 ORDER BY (date, source_app_id, provider, model);

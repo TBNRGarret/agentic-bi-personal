@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
     engine='ReplacingMergeTree()',
+    partition_by='toYYYYMM(timestamp)',
     order_by='generation_id'
 ) }}
 

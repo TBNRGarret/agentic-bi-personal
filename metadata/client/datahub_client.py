@@ -61,10 +61,46 @@ def _custom_properties(properties: dict[str, Any] | None) -> dict[str, str]:
         return {}
     output: dict[str, str] = {}
     for item in properties.get("customProperties") or []:
-        key = item.get("key")
+        key = item.get("key") if isinstance(item, dict) else None
         if key:
-            output[key] = item.get("value", "")
+            output[str(key)] = str(item.get("value", ""))
     return output
+
+
+def _global_tags(global_tags: dict[str, Any] | None) -> list[dict[str, str]]:
+    tags: list[dict[str, str]] = []
+    for item in (global_tags or {}).get("tags") or []:
+        tag = item.get("tag") if isinstance(item, dict) else None
+        name = str((tag or {}).get("name") or "").strip()
+        if name:
+            tags.append({"tagFQN": name})
+    return tags
+
+
+def _partition_info(custom_properties: dict[str, str]) -> dict[str, str] | None:
+    lowered = {key.lower(): value for key, value in custom_properties.items()}
+    key = (
+        lowered.get("partition_key")
+        or lowered.get("partition_column")
+        or lowered.get("partitionkey")
+        or lowered.get("clickhouse.partition_key")
+    )
+    strategy = (
+        lowered.get("partition_strategy")
+        or lowered.get("partition_type")
+        or lowered.get("partition_granularity")
+        or lowered.get("clickhouse.partition_strategy")
+    )
+    expression = lowered.get("partition_expression") or lowered.get("clickhouse.partition_expression")
+    if not key and expression:
+        key = expression
+    if not key:
+        return None
+    return {
+        "key": str(key).strip(),
+        "strategy": str(strategy or "monthly").strip().lower(),
+        "expression": str(expression or "").strip(),
+    }
 
 
 class DataHubClient:
@@ -82,6 +118,7 @@ class DataHubClient:
                   platform { name }
                   editableProperties { description }
                   properties { description customProperties { key value } }
+                  globalTags { tags { tag { name } } }
                 }
               }
             }
@@ -125,16 +162,22 @@ class DataHubClient:
             if platform_name != platform or not identifier.startswith(expected_prefix):
                 continue
             name = entity.get("name", "").split(".")[-1]
-            results.append(
-                {
-                    "urn": urn,
-                    "name": name,
-                    "platform": platform_name,
-                    "schema": schema,
-                    "platform_instance": platform_instance,
-                    "description": _description(entity) or dbt_descriptions.get(name, ""),
-                }
-            )
+            custom_properties = _custom_properties(entity.get("properties"))
+            tags = _global_tags(entity.get("globalTags"))
+            partition_info = _partition_info(custom_properties)
+            table = {
+                "urn": urn,
+                "name": name,
+                "platform": platform_name,
+                "schema": schema,
+                "platform_instance": platform_instance,
+                "description": _description(entity) or dbt_descriptions.get(name, ""),
+                "customProperties": custom_properties,
+                "tags": tags,
+            }
+            if partition_info:
+                table["partition_info"] = partition_info
+            results.append(table)
         return sorted(results, key=lambda item: item["name"])
 
     def get_columns(self, dataset_urn: str) -> list[dict[str, Any]]:

@@ -155,7 +155,8 @@ class DataHubConnector:
                   name
                   platform { name }
                   editableProperties { description }
-                  properties { description }
+                  properties { description customProperties { key value } }
+                  globalTags { tags { tag { name } } }
                   schemaMetadata {
                     fields { fieldPath type description nullable }
                   }
@@ -218,21 +219,27 @@ class DataHubConnector:
                         "description": field.get("description") or "",
                     }
                 )
-            tables.append(
-                {
-                    "urn": entity.get("urn"),
-                    "tableName": f"{schema}.{name}",
-                    "database": schema,
-                    "name": name,
-                    "datasource": "clickhouse",
-                    "description": (
-                        (entity.get("editableProperties") or {}).get("description")
-                        or (entity.get("properties") or {}).get("description")
-                        or ""
-                    ),
-                    "columns": columns,
-                }
-            )
+            custom_properties = _custom_properties(entity.get("properties"))
+            tags = _global_tags(entity.get("globalTags"))
+            partition_info = _partition_info(custom_properties)
+            table = {
+                "urn": entity.get("urn"),
+                "tableName": f"{schema}.{name}",
+                "database": schema,
+                "name": name,
+                "datasource": "clickhouse",
+                "description": (
+                    (entity.get("editableProperties") or {}).get("description")
+                    or (entity.get("properties") or {}).get("description")
+                    or ""
+                ),
+                "columns": columns,
+                "customProperties": custom_properties,
+                "tags": tags,
+            }
+            if partition_info:
+                table["partition_info"] = partition_info
+            tables.append(table)
         if tables and any(not table["columns"] for table in tables):
             live = {
                 table["tableName"]: table
@@ -242,6 +249,56 @@ class DataHubConnector:
                 if not table["columns"] and table["tableName"] in live:
                     table["columns"] = live[table["tableName"]]["columns"]
         return sorted(tables, key=lambda table: table["tableName"])
+
+
+def _custom_properties(properties: dict[str, Any] | None) -> dict[str, str]:
+    if not properties:
+        return {}
+    values: dict[str, str] = {}
+    for item in properties.get("customProperties") or []:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        if key:
+            values[key] = str(item.get("value") or "")
+    return values
+
+
+def _global_tags(global_tags: dict[str, Any] | None) -> list[dict[str, str]]:
+    tags: list[dict[str, str]] = []
+    for item in (global_tags or {}).get("tags") or []:
+        tag = item.get("tag") if isinstance(item, dict) else None
+        name = str((tag or {}).get("name") or "").strip()
+        if name:
+            tags.append({"tagFQN": name})
+    return tags
+
+
+def _partition_info(custom_properties: dict[str, str]) -> dict[str, str] | None:
+    lowered = {key.lower(): value for key, value in custom_properties.items()}
+    key = (
+        lowered.get("partition_key")
+        or lowered.get("partition_column")
+        or lowered.get("partitionkey")
+        or lowered.get("clickhouse.partition_key")
+    )
+    strategy = (
+        lowered.get("partition_strategy")
+        or lowered.get("partition_type")
+        or lowered.get("partition_granularity")
+        or lowered.get("clickhouse.partition_strategy")
+    )
+    expression = lowered.get("partition_expression") or lowered.get("clickhouse.partition_expression")
+    if not key and expression:
+        key = expression
+    if not key:
+        return None
+    normalized_strategy = str(strategy or "monthly").strip().lower()
+    return {
+        "key": str(key).strip(),
+        "strategy": normalized_strategy,
+        "expression": str(expression or "").strip(),
+    }
 
 
 def _dataset_identifier(urn: str) -> str:
