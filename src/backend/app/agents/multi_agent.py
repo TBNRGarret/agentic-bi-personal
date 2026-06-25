@@ -333,11 +333,11 @@ class MultiAgentOrchestrator:
             else {"type": "table", "reason": "No chart artifact was returned"},
             "sql": primary.get("sql") if primary else None,
             "selectedTables": selected_tables,
-            "searchedTables": primary.get("searchedTables") if primary else None,
-            "attempts": primary.get("attempts", []) if primary else [],
-            "metadataContext": primary.get("metadataContext") if primary else None,
-            "tableSelection": primary.get("tableSelection") if primary else None,
-            "sqlGeneration": primary.get("sqlGeneration") if primary else None,
+            "searchedTables": _merge_searched_tables(responses, primary) if primary else None,
+            "attempts": _merge_attempts(responses, primary) if primary else [],
+            "metadataContext": _merge_metadata_context(responses, primary) if primary else None,
+            "tableSelection": _merge_table_selection(responses, primary) if primary else None,
+            "sqlGeneration": _merge_sql_generation(responses, primary) if primary else None,
             "routeNote": route_note or primary.get("routeNote") if primary else route_note,
             "orchestration": {
                 **request_plan,
@@ -1813,6 +1813,76 @@ def _merge_selected_tables(
                 if name not in names:
                     names.append(name)
     return names
+
+
+def _merge_table_selection(
+    responses: list[AgentResponse],
+    primary: dict[str, Any],
+) -> dict[str, Any] | None:
+    if primary.get("tableSelection"):
+        return primary.get("tableSelection")
+    for response in responses:
+        for artifact in response.artifacts:
+            result = artifact.get("result")
+            if isinstance(result, dict) and result.get("tableSelection"):
+                return result.get("tableSelection")
+    return None
+
+
+def _merge_metadata_context(
+    responses: list[AgentResponse],
+    primary: dict[str, Any],
+) -> dict[str, Any] | None:
+    if primary.get("metadataContext"):
+        return primary.get("metadataContext")
+    for response in responses:
+        for artifact in response.artifacts:
+            result = artifact.get("result")
+            if isinstance(result, dict) and result.get("metadataContext"):
+                return result.get("metadataContext")
+    return None
+
+
+def _merge_sql_generation(
+    responses: list[AgentResponse],
+    primary: dict[str, Any],
+) -> dict[str, Any] | None:
+    if primary.get("sqlGeneration"):
+        return primary.get("sqlGeneration")
+    for response in responses:
+        for artifact in response.artifacts:
+            result = artifact.get("result")
+            if isinstance(result, dict) and result.get("sqlGeneration"):
+                return result.get("sqlGeneration")
+    return None
+
+
+def _merge_searched_tables(
+    responses: list[AgentResponse],
+    primary: dict[str, Any],
+) -> list[str] | None:
+    if primary.get("searchedTables"):
+        return primary.get("searchedTables")
+    for response in responses:
+        for artifact in response.artifacts:
+            result = artifact.get("result")
+            if isinstance(result, dict) and result.get("searchedTables"):
+                return result.get("searchedTables")
+    return None
+
+
+def _merge_attempts(
+    responses: list[AgentResponse],
+    primary: dict[str, Any],
+) -> list[Any]:
+    if primary.get("attempts"):
+        return primary.get("attempts", [])
+    for response in responses:
+        for artifact in response.artifacts:
+            result = artifact.get("result")
+            if isinstance(result, dict) and result.get("attempts"):
+                return result.get("attempts", [])
+    return []
 
 
 def _force_request_plan_route(
