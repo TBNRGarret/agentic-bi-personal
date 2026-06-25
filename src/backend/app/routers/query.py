@@ -522,7 +522,11 @@ async def _stream_chat_events(
     producer = asyncio.create_task(produce())
     try:
         while True:
-            event = await queue.get()
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=10.0)
+            except (asyncio.TimeoutError, TimeoutError):
+                yield ": keepalive\n\n"
+                continue
             if event is None:
                 break
             yield _sse(event)
