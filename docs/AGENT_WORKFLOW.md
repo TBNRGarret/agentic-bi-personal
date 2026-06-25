@@ -229,44 +229,41 @@ flowchart LR
 
 ```mermaid
 sequenceDiagram
-    actor User as Người dùng
+    actor User as User
     participant GW as API Gateway
-    participant Orchestrator as Orchestrator
-    participant SlotExt as Slot Extractor
-    participant Planner as Agent Planner
+    participant Orc as Orchestrator
+    participant SlotExt as SlotExtractor
+    participant Planner as AgentPlanner
 
-    User->>GW: "Cho tôi xem metric"
-    GW->>Orchestrator: ChatRequest(question)
-    Orchestrator->>SlotExt: extract_slots()
+    User->>GW: show me metric
+    GW->>Orc: ChatRequest(question)
+    Orc->>SlotExt: extract_slots()
     
-    Note over SlotExt: Phân tích: intent=rõ (chart),<br/>metric=không rõ, time_range=không rõ
+    Note over SlotExt: intent=chart (clear)<br/>metric=null, time_range=null
 
-    SlotExt-->>Orchestrator: slots: {intent: chart, metric: null, time_range: null}
+    SlotExt-->>Orc: slots: partial
+    Orc->>Planner: build_request_plan()
     
-    Orchestrator->>Planner: build_request_plan()
-    Note over Planner: Thiếu metric + time_range →<br/>confidence low
-    Planner-->>Orchestrator: clarification needed
+    Note over Planner: missing metric + time_range<br/>confidence = low
+    Planner-->>Orc: clarification needed
 
-    Orchestrator-->>GW: needs_clarification
-    GW-->>User: {
-        "clarification": true,
-        "message": "Bạn muốn xem metric nào?",
-        "options": ["latency", "errors", "cost", "tokens"]
-    }
+    Orc-->>GW: needs_clarification
+    GW-->>User: which metric? (latency/errors/cost/tokens)
 
-    User->>GW: "latency 7 ngày qua"
-    GW->>Orchestrator: ChatRequest(question, context=previous)
-    Orchestrator->>SlotExt: extract_slots(question, context)
+    User->>GW: latency last 7 days
+    GW->>Orc: ChatRequest(question, context)
+    Orc->>SlotExt: extract_slots(question, context)
     
-    Note over SlotExt: Kết hợp câu mới + context cũ<br/>→ intent=chart, metric=latency, time_range=7days
+    Note over SlotExt: merge with previous context<br/>intent=chart, metric=latency<br/>time_range=7days
     
-    SlotExt-->>Orchestrator: slots: {intent: chart, metric: latency, time_range: 7days}
-    Orchestrator->>Planner: build_request_plan() → confidence high
-    Planner-->>Orchestrator: agent_plan: [chart_agent]
+    SlotExt-->>Orc: slots: complete
+    Orc->>Planner: build_request_plan()
+    Note over Planner: confidence = high
+    Planner-->>Orc: agent_plan: [chart_agent]
     
-    Orchestrator->>Orchestrator: Gọi Chart Agent với đầy đủ slots
-    Orchestrator-->>GW: Response(chart, rows, sql)
-    GW-->>User: Kết quả biểu đồ
+    Orc->>Orc: execute Chart Agent
+    Orc-->>GW: Response(chart, rows, sql)
+    GW-->>User: chart result
 ```
 
 ---
