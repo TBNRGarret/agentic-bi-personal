@@ -530,11 +530,35 @@ export function ObserveChatPanel() {
     setMessages([]);
   };
 
+  const [sidebarWidth, setSidebarWidth] = useState(380);
+  const isDraggingRef = useRef(false);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDraggingRef.current) return;
+    const newWidth = window.innerWidth - e.clientX;
+    if (newWidth > 250 && newWidth < 800) {
+      setSidebarWidth(newWidth);
+    }
+  };
+
+  const handleMouseUp = () => {
+    isDraggingRef.current = false;
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+  };
+
   return (
     <div className="fade-in observe-chat-page" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <div className="observe-chat-shell" style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        <div className="observe-chat-layout" style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 340px", height: "100%" }}>
-          <div className="observe-chat-main observe-chat-main-area" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, borderRight: "1px solid var(--border-color)", overflow: "hidden" }}>
+        <div className="observe-chat-layout" style={{ width: "100%", display: "grid", gridTemplateColumns: `1fr ${sidebarWidth}px`, height: "100%", position: "relative" }}>
+          <div className="observe-chat-main observe-chat-main-area" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflow: "hidden" }}>
           <div className="observe-chat-toolbar">
             <div className="observe-chat-mode">
               <Sparkles size={16} />
@@ -687,6 +711,26 @@ export function ObserveChatPanel() {
               Send
             </button>
           </div>
+        </div>
+        {/* Thanh kéo thả để mở rộng (Resizer bar) */}
+        <div
+          className="observe-layout-resizer"
+          onMouseDown={handleMouseDown}
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            right: `${sidebarWidth - 3}px`,
+            width: "6px",
+            cursor: "col-resize",
+            background: "var(--border-color, #334155)",
+            zIndex: 50,
+            transition: "background 0.2s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "#06b6d4"; }}
+          onMouseLeave={(e) => { if (!isDraggingRef.current) e.currentTarget.style.background = "var(--border-color, #334155)"; }}
+        >
+          <div style={{ position: "absolute", top: "50%", left: "1px", width: "4px", height: "24px", background: "#cbd5e1", borderRadius: "2px", transform: "translateY(-50%)" }} />
         </div>
         <div className="observe-chat-flow-container" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "var(--bg-card)", borderLeft: "1px solid var(--border-color)", overflowY: "auto" }}>
           <AgentFlowGraph

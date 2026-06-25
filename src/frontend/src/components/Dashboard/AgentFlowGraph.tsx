@@ -51,14 +51,84 @@ function buildFlowNodes(
   question?: string,
   workflowGraph?: WorkflowGraph,
 ): FlowNode[] {
+  const activeQuestion = question || data?.question || "";
+  const activeIntent = data?.intent || "";
+  const activeAgentName = (data?.agent || "").toLowerCase();
+  const intentStr = (activeIntent + " " + activeQuestion).toLowerCase();
+  const stageStr = stages.map(s => (s.stage || s.message || "")).join(" ").toLowerCase();
+  const selectedTables = Array.isArray(data?.selectedTables) ? data.selectedTables : [];
+
   if (workflowGraph?.nodes?.length) {
-    return workflowGraph.nodes.map((node, index) => ({
-      id: node.id || "workflow-" + index,
-      label: node.label || formatStageName(node.kind || "workflow"),
-      sublabel: graphSublabel(node),
-      type: graphNodeType(node),
-      active: Boolean(loading && index === (workflowGraph.nodes?.length || 0) - 1),
-    }));
+    // Filter and tailor nodes for HLD explainability
+    const filtered = workflowGraph.nodes.filter((node) => {
+      const lbl = (node.label || "").toLowerCase();
+      const kind = (node.kind || "").toLowerCase();
+
+      // 1. Always include User / Context
+      if (kind === "person" || lbl.includes("client") || lbl.includes("user")) return true;
+
+      // 2. Always include API / Orchestrator / Guardrail / Planner
+      if (lbl.includes("service") || lbl.includes("guardrail") || lbl.includes("planner") || lbl.includes("orchestrator")) return true;
+
+      // 3. Metadata Catalog (DataHub)
+      if (lbl.includes("datahub") || lbl.includes("metadata")) return true;
+
+      // 4. Specialist Agents: ONLY include the specific agent active for this query
+      if (lbl.includes("agent") && !lbl.includes("response") && !lbl.includes("summarizer")) {
+        if (activeAgentName && lbl.includes(activeAgentName.replace(/agent/g, "").trim())) return true;
+        if (lbl.includes("insight") && (intentStr.includes("root-cause") || intentStr.includes("latency") || intentStr.includes("error") || stageStr.includes("insight"))) return true;
+        if (lbl.includes("qa") && (intentStr.includes("failed") || intentStr.includes("batch") || stageStr.includes("qa") || stageStr.includes("audit"))) return true;
+        if (lbl.includes("partition") && (intentStr.includes("partition") || intentStr.includes("phân vùng") || stageStr.includes("partition"))) return true;
+        if (lbl.includes("forecast") && (intentStr.includes("forecast") || intentStr.includes("dự báo") || stageStr.includes("forecast"))) return true;
+        if (lbl.includes("sql") || lbl.includes("chart")) {
+          if (activeAgentName.includes("sql") || activeAgentName.includes("chart") || intentStr.includes("tong quan") || intentStr.includes("biểu đồ") || stageStr.includes("sql") || (!intentStr.includes("root-cause") && !intentStr.includes("failed"))) return true;
+        }
+        return false;
+      }
+
+      // 5. Background data pipeline (MinIO, Airflow, dbt, Source export): exclude unless explicitly asked about
+      if (lbl.includes("source export") || lbl.includes("minio") || lbl.includes("airflow") || lbl.includes("dbt") || lbl.includes("clickhouse raw") || lbl.includes("batch fail audit")) {
+        if (intentStr.includes("airflow") || intentStr.includes("dbt") || intentStr.includes("minio") || intentStr.includes("pipeline") || intentStr.includes("raw")) return true;
+        return false;
+      }
+
+      // 6. Target Database (ClickHouse analytics / OLAP)
+      if (lbl.includes("clickhouse") || lbl.includes("database") || lbl.includes("analytics")) return true;
+
+      // 7. Response / Result
+      if (lbl.includes("response") || lbl.includes("result") || lbl.includes("summarizer")) return true;
+
+      return false;
+    });
+
+    return filtered.map((node, index) => {
+      let sublabel = graphSublabel(node);
+      const lbl = (node.label || "").toLowerCase();
+
+      // Dynamically inject exact query explainability metadata into sublabels
+      if (node.kind === "person" || lbl.includes("client")) {
+        sublabel = activeQuestion ? `Câu hỏi: ${activeQuestion.length > 45 ? activeQuestion.slice(0, 42) + "…" : activeQuestion}` : sublabel;
+      } else if (lbl.includes("guardrail") || lbl.includes("planner") || lbl.includes("orchestrator")) {
+        sublabel = activeIntent ? `Intent: ${activeIntent}` : sublabel;
+      } else if (lbl.includes("datahub") || lbl.includes("metadata")) {
+        sublabel = selectedTables.length > 0 ? `Bảng: ${selectedTables.join(", ")}` : "Schema & Lineage lookup";
+      } else if (lbl.includes("clickhouse") || lbl.includes("database") || lbl.includes("analytics")) {
+        sublabel = data?.target ? `Nguồn đích: ${data.target}` : "ClickHouse OLAP Tables";
+      } else if (lbl.includes("response") || lbl.includes("result")) {
+        const parts: string[] = [];
+        if (data?.rowCount !== undefined) parts.push(`${data.rowCount} rows`);
+        if (data?.executionTimeMs !== undefined) parts.push(`${data.executionTimeMs} ms`);
+        if (parts.length) sublabel = parts.join(" · ");
+      }
+
+      return {
+        id: node.id || "workflow-" + index,
+        label: node.label || formatStageName(node.kind || "workflow"),
+        sublabel,
+        type: graphNodeType(node),
+        active: Boolean(loading && index === filtered.length - 1),
+      };
+    });
   }
 
   const nodes: FlowNode[] = [];
@@ -291,23 +361,25 @@ const NODE_COLORS: Record<
 };
 
 function getConnectorLabel(prevNode: FlowNode, currNode: FlowNode, graph?: WorkflowGraph): string {
-  const graphLabel = graphEdgeLabel(graph, prevNode.id, currNode.id);
-  if (graphLabel) return graphLabel;
-  if (prevNode.type === "user") return "analyzes request";
+  if (prevNode.type === "user") return "gửi yêu cầu truy vấn";
   if (prevNode.type === "planner") {
-    if (currNode.type === "agent") return "routes to agent";
-    if (currNode.type === "datasource") return "targets table";
-    return "delegates to";
+    if (currNode.type === "agent") return `điều phối tới ${currNode.label}`;
+    if (currNode.type === "datasource" || currNode.label.includes("DataHub")) return "tra cứu metadata & schema";
+    return "kiểm tra guardrail & kế hoạch";
   }
   if (prevNode.type === "agent") {
-    if (currNode.type === "datasource") return "queries database";
-    if (currNode.type === "result" || currNode.type === "error") return "delivers response";
-    return "passes data";
+    if (currNode.type === "datasource" || currNode.label.includes("ClickHouse")) return "truy vấn dữ liệu OLAP";
+    if (currNode.type === "result" || currNode.type === "error") return "tổng hợp & trả kết quả";
+    return "chuyển tiếp dữ liệu";
   }
-  if (currNode.type === "datasource") return "accesses tables";
-  if (currNode.type === "result") return "renders rows";
-  if (currNode.type === "error") return "fails query";
-  return "flows to";
+  if (prevNode.type === "datasource" || prevNode.label.includes("DataHub")) {
+    if (currNode.type === "agent") return "cung cấp schema cho Agent";
+    if (currNode.type === "result") return "trả dữ liệu kết xuất";
+    return "truy xuất dữ liệu";
+  }
+  if (currNode.type === "result") return "hiển thị kết quả";
+  if (currNode.type === "error") return "dừng thực thi do lỗi";
+  return "kết nối luồng dữ liệu";
 }
 
 function NodeIcon({ type, size = 14 }: { type: FlowNode["type"]; size?: number }) {
