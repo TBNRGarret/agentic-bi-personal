@@ -10,11 +10,11 @@ Schedule: @hourly — runs at :00, generates data for the previous hour.
 Retries: up to 3 times with 5-minute delay between attempts.
 """
 
-from airflow import DAG
-from airflow.operators.bash import BashOperator
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.sdk import dag
 from datetime import datetime, timedelta
 
-with DAG(
+@dag(
     dag_id="generate_data_stream",
     schedule="@hourly",
     start_date=datetime(2026, 6, 25),
@@ -25,7 +25,8 @@ with DAG(
     },
     description="Generate synthetic streaming data for the previous hour and upload to MinIO",
     tags=["data_generation", "stream"],
-) as dag:
+)
+def generate_data_stream():
 
     generate_and_upload = BashOperator(
         task_id="generate_and_upload",
@@ -34,3 +35,6 @@ with DAG(
             "--save --hour '{{ data_interval_start.strftime('%Y-%m-%d-%H') }}'"
         ),
     )
+
+
+generate_data_stream()
