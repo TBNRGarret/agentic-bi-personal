@@ -156,6 +156,8 @@
   font-size: 14.5px;
   line-height: 1.65;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
   color: inherit;
 }
 
@@ -335,6 +337,8 @@
   color: var(--text-secondary);
   line-height: 1.65;
   margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* --- Horizontal rule --- */
@@ -453,6 +457,8 @@
 .md-ol li {
   line-height: 1.55;
   padding-left: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .md-ul li::marker {
