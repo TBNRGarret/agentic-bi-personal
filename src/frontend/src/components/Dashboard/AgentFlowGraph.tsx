@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Database, Sparkles, User, Zap, CheckCircle2, AlertCircle, Loader2,
   Workflow, Layers, Server, Activity, ShieldAlert, Cpu,
-  BarChart3, PieChart, Info, ArrowRight,
+  BarChart3, PieChart, Info, GitCommit, GitMerge,
   CornerDownRight, Terminal, X, FileCode
 } from "lucide-react";
 
@@ -525,6 +525,7 @@ interface C4NodeDef {
   iconName: string;
   tags: string[];
   codeFile?: string;
+  connections?: string[];
   contract?: {
     input?: string;
     output?: string;
@@ -546,6 +547,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "User",
     tags: ["Vietnamese NL", "Dashboard UI", "REST / SSE"],
     codeFile: "src/frontend/src/App.tsx",
+    connections: ["FastAPI Router & Context"],
   },
   {
     id: "router",
@@ -560,6 +562,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "Terminal",
     tags: ["FastAPI", "Session Memory", "Postgres Audit"],
     codeFile: "src/backend/app/routers/query.py",
+    connections: ["Multi-Agent Orchestrator", "Session Memory"],
   },
   {
     id: "orchestrator",
@@ -574,6 +577,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "Workflow",
     tags: ["Control Plane", "Semantic Slots", "Clarification Gate"],
     codeFile: "src/backend/app/agents/multi_agent.py",
+    connections: ["DataHub Table Selector", "Chart Agent", "Insight Agent", "Forecast Agent", "QA Agent", "Partition Agent", "Summarizer Agent"],
     contract: {
       input: "Natural Language Question + Active Session Context",
       output: "Deterministic Agent Plan + Specialist Agent Responses",
@@ -593,6 +597,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "Database",
     tags: ["DataHub GMS", "Schema Discovery", "Table Ranking"],
     codeFile: "src/backend/app/agents/table_selector.py",
+    connections: ["Chart Agent", "ClickHouse OLAP"],
   },
   {
     id: "chart_agent",
@@ -607,6 +612,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "BarChart3",
     tags: ["NL2SQL", "ClickHouse SQL", "Dynamic Chart"],
     codeFile: "src/backend/app/agents/chart_spec.py",
+    connections: ["ClickHouse OLAP", "Summarizer Agent"],
     contract: {
       input: "Question + Selected Tables Schema + Semantic Slots",
       output: "Generated SQL + Result Rows + Visual Chart Spec",
@@ -626,6 +632,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "Activity",
     tags: ["Anomaly Detection", "Telemetry Analysis", "Root Cause"],
     codeFile: "src/backend/app/agents/monitoring_agent.py",
+    connections: ["ClickHouse OLAP", "Summarizer Agent"],
   },
   {
     id: "forecast_agent",
@@ -640,6 +647,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "PieChart",
     tags: ["Trend Forecasting", "Exponential Smoothing", "Predictive BI"],
     codeFile: "src/backend/app/agents/multi_agent.py",
+    connections: ["ClickHouse OLAP", "Summarizer Agent"],
   },
   {
     id: "qa_agent",
@@ -654,6 +662,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "ShieldAlert",
     tags: ["Data Quality Gate", "Batch Quarantine", "Pipeline Audit"],
     codeFile: "src/backend/app/agents/monitoring_agent.py",
+    connections: ["ClickHouse OLAP", "Airflow Orchestration", "Summarizer Agent"],
   },
   {
     id: "partition_agent",
@@ -668,10 +677,11 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "Layers",
     tags: ["Partition Pruning", "ClickHouse Parts", "Skew Detection"],
     codeFile: "src/backend/app/agents/partition_agent.py",
+    connections: ["ClickHouse OLAP", "Summarizer Agent"],
     contract: {
       input: "Target Tables + Time Range Slot",
       output: "PartitionHealthReport + Pruning Recommendations",
-      description: "Tương tác trực tiếp với PartitionManager để tối ưu hóa truy vấn OLAP quy mô lớn.",
+      description: "Tương tác trực tiếp với PartitionManager để tối ưu hóa truy vấn OLAP quy status lớn.",
     },
   },
   {
@@ -687,6 +697,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "Server",
     tags: ["S3 Streaming", "Raw JSONL", "Manifest Store"],
     codeFile: "dags/agentic_bi_pipeline.py",
+    connections: ["Airflow Orchestration"],
   },
   {
     id: "airflow",
@@ -701,6 +712,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "Cpu",
     tags: ["Decoupled DAGs", "Continuous Ingest", "TriggerDagRun"],
     codeFile: "dags/agentic_bi_pipeline.py",
+    connections: ["ClickHouse OLAP", "MinIO Object Storage"],
   },
   {
     id: "clickhouse",
@@ -715,6 +727,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "Database",
     tags: ["OLAP Columnar", "Gold Analytics", "System Parts"],
     codeFile: "src/backend/app/connectors/clickhouse.py",
+    connections: ["Summarizer Agent", "Specialist Agents"],
   },
   {
     id: "summarizer",
@@ -729,6 +742,7 @@ const HIGH_LEVEL_NODES: C4NodeDef[] = [
     iconName: "Sparkles",
     tags: ["LLM Synthesis", "Final Grounded Answer", "Markdown UI"],
     codeFile: "src/backend/app/agents/multi_agent.py",
+    connections: ["Web UI Client"],
   },
 ];
 
@@ -750,9 +764,45 @@ function CanvasNodeIcon({ name, accent }: { name: string; accent: string }) {
   }
 }
 
+function getLayerConnectionLabel(fromLayer: string, toLayer: string): string {
+  if (fromLayer === "C1 Context" && toLayer === "API Gateway") return "Gửi yêu cầu truy vấn tự nhiên (REST / SSE Stream)";
+  if (fromLayer === "API Gateway" && toLayer === "Orchestration") return "Chuyển giao Context & Quản lý bộ nhớ phiên (Session Memory)";
+  if (fromLayer === "Orchestration" && toLayer === "Metadata") return "Truy xuất siêu dữ liệu & Xếp hạng bảng (DataHub GMS)";
+  if (fromLayer === "Orchestration" && toLayer === "Specialist Agents") return "Điều phối & Giao việc song song (asyncio.gather)";
+  if (fromLayer === "Metadata" && toLayer === "Specialist Agents") return "Cung cấp Schema & Context cho Specialist Agents";
+  if (fromLayer === "Specialist Agents" && toLayer === "Data Pipeline") return "Tham chiếu luồng Ingestion & Kiểm tra trạng thái lô";
+  if (fromLayer === "Specialist Agents" && toLayer === "Database") return "Sinh SQL an toàn & Truy vấn dữ liệu phân vùng";
+  if (fromLayer === "Data Pipeline" && toLayer === "Database") return "Lưu trữ & Chuẩn hóa dữ liệu (Airflow & dbt Quality Gate)";
+  if (fromLayer === "Database" && toLayer === "Synthesis") return "Kết xuất dữ liệu thô & Biểu đồ hóa (Synthesizer)";
+  return `Điều phối & Luồng dữ liệu (${fromLayer} → ${toLayer})`;
+}
+
 export function AgentWorkflowCanvas() {
   const [selectedId, setSelectedId] = useState<string>("orchestrator");
   const [viewMode, setViewMode] = useState<"all" | "agents" | "pipeline">("all");
+  const [inspectorWidth, setInspectorWidth] = useState<number>(400);
+  const isDraggingRef = useRef(false);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDraggingRef.current) return;
+    const newWidth = window.innerWidth - e.clientX;
+    if (newWidth > 280 && newWidth < 800) {
+      setInspectorWidth(newWidth);
+    }
+  };
+
+  const handleMouseUp = () => {
+    isDraggingRef.current = false;
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+  };
 
   const selectedNode = HIGH_LEVEL_NODES.find((node) => node.id === selectedId) || HIGH_LEVEL_NODES[2];
 
@@ -769,8 +819,8 @@ export function AgentWorkflowCanvas() {
   const layers = Array.from(new Set(filteredNodes.map((node) => node.layer)));
 
   return (
-    <div className="workflow-canvas-container fade-in">
-      <div className="workflow-canvas-header">
+    <div className="workflow-canvas-container fade-in" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      <div className="workflow-canvas-header" style={{ flexShrink: 0 }}>
         <div className="workflow-canvas-title-group">
           <div className="workflow-canvas-title">
             <Workflow size={24} />
@@ -808,8 +858,8 @@ export function AgentWorkflowCanvas() {
         </div>
       </div>
 
-      <div className="workflow-canvas-body">
-        <div className="workflow-grid">
+      <div className="workflow-canvas-body" style={{ display: "flex", flexDirection: "row", flex: 1, minHeight: 0, width: "100%", overflow: "hidden", position: "relative" }}>
+        <div className="workflow-grid" style={{ flex: 1, minWidth: 0, overflowY: "auto", paddingRight: selectedNode ? "16px" : "0" }}>
           {layers.map((layer, layerIndex) => {
             const nodesInLayer = filteredNodes.filter((node) => node.layer === layer);
             return (
@@ -843,6 +893,12 @@ export function AgentWorkflowCanvas() {
                         </div>
                         <div className="workflow-card-title">{node.label}</div>
                         <div className="workflow-card-desc">{node.desc}</div>
+                        {node.connections && (
+                          <div className="workflow-card-connections" style={{ marginTop: "10px", paddingTop: "8px", borderTop: "1px dashed var(--border-color, #334155)", display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#94a3b8" }}>
+                            <GitCommit size={13} color={node.accent} />
+                            <span><strong>Liên kết:</strong> {node.connections.join(", ")}</span>
+                          </div>
+                        )}
                         <div className="workflow-card-tags">
                           {node.tags.map((tag) => (
                             <span key={tag} className="workflow-tag">{tag}</span>
@@ -853,11 +909,11 @@ export function AgentWorkflowCanvas() {
                   })}
                 </div>
                 {layerIndex < layers.length - 1 && (
-                  <div className="workflow-connection-bar">
-                    <div className="workflow-connection-line" />
-                    <div className="workflow-connection-badge">
-                      <ArrowRight size={14} />
-                      <span>Luồng dữ liệu & Điều phối</span>
+                  <div className="workflow-connection-bar" style={{ margin: "16px 0", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <div className="workflow-connection-line" style={{ position: "absolute", width: "100%", height: "2px", background: "linear-gradient(90deg, #6366f1 0%, #06b6d4 50%, #10b981 100%)", opacity: 0.7 }} />
+                    <div className="workflow-connection-badge" style={{ position: "relative", background: "#1e293b", color: "#38bdf8", border: "1px solid #0284c7", padding: "4px 14px", borderRadius: "20px", display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: "600", boxShadow: "0 2px 8px rgba(0,0,0,0.3)", zIndex: 2 }}>
+                      <GitMerge size={14} className="animate-pulse" />
+                      <span>{getLayerConnectionLabel(layer, layers[layerIndex + 1])}</span>
                     </div>
                   </div>
                 )}
@@ -867,74 +923,105 @@ export function AgentWorkflowCanvas() {
         </div>
 
         {selectedNode && (
-          <div className="workflow-inspector">
-            <div className="workflow-inspector-header">
-              <div className="workflow-inspector-title">
-                <Info size={18} color={selectedNode.accent} />
-                <span>Chi tiết Component</span>
-              </div>
-              <button
-                type="button"
-                className="workflow-inspector-close"
-                onClick={() => setSelectedId("")}
-                title="Đóng"
-              >
-                <X size={18} />
-              </button>
+          <>
+            {/* Thanh kéo thả để mở rộng (Resizer bar) */}
+            <div
+              className="workflow-inspector-resizer"
+              onMouseDown={handleMouseDown}
+              style={{
+                width: "6px",
+                cursor: "col-resize",
+                background: "var(--border-color, #334155)",
+                zIndex: 50,
+                transition: "background 0.2s",
+                position: "relative",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "#06b6d4"; }}
+              onMouseLeave={(e) => { if (!isDraggingRef.current) e.currentTarget.style.background = "var(--border-color, #334155)"; }}
+            >
+              <div style={{ position: "absolute", top: "50%", left: "1px", width: "4px", height: "24px", background: "#cbd5e1", borderRadius: "2px", transform: "translateY(-50%)" }} />
             </div>
-            <div className="workflow-inspector-body">
-              <div className="inspector-section">
-                <div className="inspector-section-title">Thông tin chung</div>
-                <div className="inspector-card">
-                  <div className="inspector-item">
-                    <strong>Tên:</strong> <span>{selectedNode.label}</span>
-                  </div>
-                  <div className="inspector-item">
-                    <strong>C4 Level:</strong> <span>{selectedNode.c4Level}</span>
-                  </div>
-                  <div className="inspector-item">
-                    <strong>Layer:</strong> <span>{selectedNode.layer}</span>
-                  </div>
-                  <div className="inspector-item">
-                    <strong>Vai trò:</strong> <span>{selectedNode.desc}</span>
-                  </div>
+
+            <div className="workflow-inspector" style={{ width: `${inspectorWidth}px`, flexShrink: 0, overflowY: "auto", borderLeft: "1px solid var(--border-color, #334155)" }}>
+              <div className="workflow-inspector-header">
+                <div className="workflow-inspector-title">
+                  <Info size={18} color={selectedNode.accent} />
+                  <span>Chi tiết Component</span>
                 </div>
+                <button
+                  type="button"
+                  className="workflow-inspector-close"
+                  onClick={() => setSelectedId("")}
+                  title="Đóng"
+                >
+                  <X size={18} />
+                </button>
               </div>
-
-              {selectedNode.codeFile && (
+              <div className="workflow-inspector-body">
                 <div className="inspector-section">
-                  <div className="inspector-section-title">
-                    <FileCode size={14} />
-                    <span>File Triển Khai</span>
-                  </div>
-                  <div className="inspector-code">{selectedNode.codeFile}</div>
-                </div>
-              )}
-
-              {selectedNode.contract && (
-                <div className="inspector-section">
-                  <div className="inspector-section-title">Data Contract & Đặc tả</div>
+                  <div className="inspector-section-title">Thông tin chung</div>
                   <div className="inspector-card">
-                    {selectedNode.contract.input && (
-                      <div className="inspector-item">
-                        <strong>Input:</strong> <span>{selectedNode.contract.input}</span>
-                      </div>
-                    )}
-                    {selectedNode.contract.output && (
-                      <div className="inspector-item">
-                        <strong>Output:</strong> <span>{selectedNode.contract.output}</span>
-                      </div>
-                    )}
-                    {selectedNode.contract.description && (
-                      <div className="inspector-item">
-                        <strong>Luồng thực thi:</strong> <span>{selectedNode.contract.description}</span>
-                      </div>
-                    )}
+                    <div className="inspector-item">
+                      <strong>Tên:</strong> <span>{selectedNode.label}</span>
+                    </div>
+                    <div className="inspector-item">
+                      <strong>C4 Level:</strong> <span>{selectedNode.c4Level}</span>
+                    </div>
+                    <div className="inspector-item">
+                      <strong>Layer:</strong> <span>{selectedNode.layer}</span>
+                    </div>
+                    <div className="inspector-item">
+                      <strong>Vai trò:</strong> <span>{selectedNode.desc}</span>
+                    </div>
                   </div>
                 </div>
-              )}
+
+                {selectedNode.connections && (
+                  <div className="inspector-section">
+                    <div className="inspector-section-title">Liên kết kiến trúc HLD</div>
+                    <div className="inspector-card">
+                      <div className="inspector-item">
+                        <strong>Thành phần kết nối:</strong> <span>{selectedNode.connections.join(", ")}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {selectedNode.codeFile && (
+                  <div className="inspector-section">
+                    <div className="inspector-section-title">
+                      <FileCode size={14} />
+                      <span>File Triển Khai</span>
+                    </div>
+                    <div className="inspector-code">{selectedNode.codeFile}</div>
+                  </div>
+                )}
+
+                {selectedNode.contract && (
+                  <div className="inspector-section">
+                    <div className="inspector-section-title">Data Contract & Đặc tả</div>
+                    <div className="inspector-card">
+                      {selectedNode.contract.input && (
+                        <div className="inspector-item">
+                          <strong>Input:</strong> <span>{selectedNode.contract.input}</span>
+                        </div>
+                      )}
+                      {selectedNode.contract.output && (
+                        <div className="inspector-item">
+                          <strong>Output:</strong> <span>{selectedNode.contract.output}</span>
+                        </div>
+                      )}
+                      {selectedNode.contract.description && (
+                        <div className="inspector-item">
+                          <strong>Luồng thực thi:</strong> <span>{selectedNode.contract.description}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
     </div>
