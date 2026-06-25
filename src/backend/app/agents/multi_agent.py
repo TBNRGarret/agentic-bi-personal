@@ -118,7 +118,7 @@ def _agent_synthesis_timeout(settings: Settings | None) -> float:
     configured = (
         float(settings.agent_synthesis_timeout_seconds)
         if settings is not None
-        else 20.0
+        else 120.0
     )
     return max(0.05, configured)
 
