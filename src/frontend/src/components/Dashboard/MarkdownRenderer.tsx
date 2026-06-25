@@ -83,7 +83,7 @@ type Block =
   | { type: "code"; lang: string; code: string }
   | { type: "table"; lines: string[] }
   | { type: "ul"; items: string[] }
-  | { type: "ol"; items: string[] }
+  | { type: "ol"; items: string[]; start: number }
   | { type: "blockquote"; text: string }
   | { type: "paragraph"; text: string }
   | { type: "blank" };
@@ -168,12 +168,14 @@ function tokenise(markdown: string): Block[] {
 
     // Ordered list
     if (/^\s*\d+\.\s/.test(line)) {
+      const match = /^\s*(\d+)\.\s/.exec(line);
+      const start = match ? parseInt(match[1], 10) : 1;
       const items: string[] = [];
       while (i < lines.length && /^\s*\d+\.\s/.test(lines[i])) {
         items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
         i++;
       }
-      blocks.push({ type: "ol", items });
+      blocks.push({ type: "ol", items, start });
       continue;
     }
 
@@ -243,7 +245,7 @@ function renderBlock(block: Block, index: number): ReactNode {
 
     case "ol":
       return (
-        <ol key={index} className="md-ol">
+        <ol key={index} className="md-ol" start={block.start}>
           {block.items.map((item, ii) => (
             <li key={ii}>{parseInline(item)}</li>
           ))}
