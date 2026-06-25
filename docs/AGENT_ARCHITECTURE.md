@@ -1,345 +1,449 @@
-# Agentic BI — Agent Architecture
+# Agentic BI — Agent Architecture (High-Level Design)
 
-## Tổng quan
+## 1. Tổng quan hệ thống
 
-Agentic BI sử dụng **Multi-Agent Orchestrator** để xử lý câu hỏi tiếng Việt từ người dùng → phân tích ngữ nghĩa → điều phối các agent chuyên biệt → sinh SQL → truy vấn dữ liệu → trả về bảng/biểu đồ/dashboard.
+Agentic BI là hệ thống **Natural Language to Analytics** cho phép người dùng đặt câu hỏi bằng tiếng Việt và nhận câu trả lời dưới dạng bảng, biểu đồ, hoặc dashboard.
 
-Luồng xử lý: `HTTP Request → Router → Orchestrator → Semantic Slots → Agent Plan → Specialist Agents → Summarizer → Response`
+Kiến trúc sử dụng mô hình **Multi-Agent Orchestrator**: một orchestrator trung tâm điều phối nhiều agent chuyên biệt, mỗi agent đảm nhận một nhiệm vụ cụ thể trong pipeline xử lý.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         USER INTERFACE                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  Web UI (React) — Chat / Bảng / Biểu đồ / Dashboard             │    │
+│  └──────────────────────────┬──────────────────────────────────────┘    │
+└─────────────────────────────┼──────────────────────────────────────────┘
+                              │ HTTP (REST)
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     API GATEWAY (FastAPI)                               │
+│  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐    │
+│  │ Chat Router │  │  Sessions   │  │  Dashboard   │  │    Auth     │    │
+│  │ /api/query  │  │ /api/session│  │ /api/dashbrd │  │ /api/auth   │    │
+│  └──────┬──────┘  └─────────────┘  └──────────────┘  └─────────────┘    │
+│  Middleware: JWT Auth · CORS · Rate Limit · OpenTelemetry               │
+└─────────┼─────────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    ORCHESTRATION LAYER                                  │
+│                                                                         │
+│  ┌──────────────────┐    ┌────────────────┐    ┌───────────────────┐    │
+│  │ Semantic Slot    │───▶│ Agent Planner  │───▶│   Table Selector  │    │
+│  │ Extractor        │    │ (LLM / Rules)  │    │ (BM25 + Keyword)  │    │
+│  └──────────────────┘    └────────────────┘    └─────────┬─────────┘    │
+│                                                          │              │
+│  ┌──────────────────────────────────────────────────────┐│              │
+│  │           Multi-Agent Orchestrator                  │◀┘              │
+│  │  Điều phối · Clarification · Aggregation            │                │
+│  └────────────┬──────────────────┬──────────────────────┘               │
+└───────────────┼──────────────────┼──────────────────────────────────────┘
+                │                  │
+                │                  │  METADATA PATH
+                │                  │
+                │                  │  ┌────────────────────────┐
+                │                  │  │  DataHubConnector      │
+                │                  │  │                        │
+                │                  │  │  ┌──────────────────┐  │
+                │                  ├──│  │  DataHub         │  │
+                │                  │  │  │  GraphQL API     │  │
+                │                  │  │  │  (schema, tags,  │  │
+                │                  │  │  │   description)   │  │
+                │                  │  │  └────────┬─────────┘  │
+                │                  │  │           │ fallback   │
+                │                  │  │  ┌────────▼─────────┐  │
+                │                  │  │  │  ClickHouse      │  │
+                │                  │  │  │  system.columns  │  │
+                │                  │  │  └──────────────────┘  │
+                │                  │  └────────────────────────┘
+                ▼                  │
+┌─────────────────┐  ┌─────────────────┐  ┌──────────────────────┐
+│  CHART AGENT    │  │  INSIGHT AGENT  │  │  FORECAST / QA /    │
+│  NL2SQL + Chart │  │  Root-cause     │  │  PARTITION Agent    │
+└────────┬────────┘  └────────┬────────┘  └──────────┬───────────┘
+         │                    │                       │
+         └────────────────────┼───────────────────────┘
+                              │
+                              ▼
+          ┌──────────────────────────────────────────┐
+          │         LLM SERVICE (SQL Generation)     │
+          │  OpenAI / OpenRouter · SQL Correction    │
+          └────────────────────┬─────────────────────┘
+                               │
+                    ┌──────────┴──────────┐
+                    ▼                     ▼
+          ┌──────────────────┐  ┌────────────────────┐
+          │   ClickHouse     │  │    PostgreSQL      │
+          │  (Analytics DB)  │  │  (DWH / Ops)       │
+          │  vsf_mart        │  │  sessions · auth   │
+          │  vsf_stg         │  │  audit · memory    │
+          │  vsf_raw         │  └────────────────────┘
+          └──────────────────┘
+```
 
 ---
 
-## 1. Entry point — `main.py`
+## 2. Kiến trúc tổng thể
 
-`FastAPI` app khởi tạo các connectors và services:
+Hệ thống gồm **5 tầng (layers)**:
 
-```
-ClickHouseConnector → truy vấn analytics
-PostgresConnector  → audit, sessions, auth
-DataHubConnector   → metadata & lineage
-MetabaseConnector  → dashboard embedding
-AuthService        → JWT authentication
-ContextManager     → session & memory
-```
+### 2.1 Client Layer
+- **Web UI** (React): giao diện chat, hiển thị bảng/biểu đồ/dashboard
+- Giao tiếp với backend qua REST API
 
-Routers:
-- `/api/agent/chat` — endpoint chính (`routers/query.py`)
-- `/api/sessions` — quản lý session (`routers/sessions.py`)
-- `/api/dashboard` — dashboard (`routers/dashboard.py`)
-- `/api/auth` — auth (`routers/auth.py`)
+### 2.2 API Gateway Layer
+- **FastAPI** application
+- **Routers**: Chat (`/api/query/chat`), Sessions (`/api/sessions`), Dashboard (`/api/dashboard`), Auth (`/api/auth`), Terminal (`/api/terminal`)
+- **Middleware**: JWT authentication, CORS, rate limiting
+- **Observability**: OpenTelemetry tracing, JSON structured logging
 
----
+### 2.3 Orchestration Layer
+- **Multi-Agent Orchestrator**: control plane, điều phối toàn bộ flow xử lý
+- **Semantic Slot Extractor**: phân tích câu hỏi → trích xuất intent, metric, time_range, domain
+- **Agent Planner**: chọn specialist agents phù hợp dựa trên intent (LLM hoặc rule-based)
+- **Table Selector**: chọn bảng dữ liệu phù hợp từ metadata (DataHub)
+- **Context Manager**: quản lý session history + structured memory
 
-## 2. HTTP Flow — `routers/query.py`
+### 2.4 Specialist Agent Layer
+| Agent | Nhiệm vụ chính |
+|-------|---------------|
+| **Chart Agent** | NL2SQL + sinh biểu đồ (line, bar, pie, table, heatmap...) |
+| **Insight Agent** | Phân tích root-cause, so sánh, tương quan |
+| **Forecast Agent** | Dự báo xu hướng từ historical data |
+| **QA Agent** | Kiểm tra data quality, ingestion health, failed batches |
+| **Partition Agent** | Phân tích partition strategy & health |
+| **Dashboard Generator** | Tạo multi-panel dashboard |
+| **Terminal Agent** | Thực thi terminal commands (observation) |
 
-```
-Request → ChatRequest → load context/memory từ session
-       → MultiAgentOrchestrator.answer()
-       → persist turn vào Postgres
-       → audit log
-       → Response
-```
-
-Mỗi session lưu conversation history và memory (structured request trước đó) để agent có context liên tục.
-
----
-
-## 3. Multi-Agent Orchestrator — `agents/multi_agent.py`
-
-`MultiAgentOrchestrator` là **control-plane agent**, điều phối toàn bộ quy trình.
-
-### 3.1 Luồng chính
-
-```
-answer(question)
-  │
-  ├─ 1. Semantic Slots: trích xuất intent/domain/metric/time_range/layer
-  │     (dùng LLM classify_request_slots nếu có, skip nếu không)
-  │
-  ├─ 2. Request Plan: build_request_plan() kết hợp rule-based + LLM slots
-  │     ├─ intent_type: dashboard | time_series | aggregation | lookup | full_report
-  │     ├─ domain: observability | llm_usage | ingestion | agent_cost
-  │     ├─ metric: latency | errors | cost | tokens | ...
-  │     ├─ time_range: 24h | 7days | 30days
-  │     └─ layer: auto | gold | silver
-  │
-  ├─ 3. Clarification Gate: nếu thiếu slot → trả về needs_clarification
-  │     yêu cầu người dùng chọn option (VD: "Bạn muốn xem metric nào?")
-  │
-  ├─ 4. Agent Plan: chọn specialist agents
-  │     ├─ LLM-based: llm.plan_agents() (nếu có API key)
-  │     └─ Fallback: deterministic_agent_plan() (rule-based)
-  │
-  ├─ 5. Routing & Execution: chạy các specialist agents song song (asyncio.gather)
-  │     ├─ chart_agent      → NL2SQL + biểu đồ
-  │     ├─ insight_agent    → phân tích root-cause
-  │     ├─ forecast_agent   → dự báo
-  │     ├─ qa_agent         → kiểm tra chất lượng dữ liệu
-  │     └─ partition_agent  → phân tích partition strategy & health
-  │
-  ├─ 6. Summarizer: tổng hợp kết quả từ các specialist agents
-  │
-  └─ 7. Response: trả về answer + chartSpec + rows + sql + metadata
-```
-
-### 3.2 Routing table (`agent_planner.py`)
-
-| Intent | Agents | Mô tả |
-|--------|--------|-------|
-| `chart` | `chart_agent` | NL2SQL + biểu đồ |
-| `insight` | `insight_agent` | Root-cause analysis |
-| `forecast` | `forecast_agent` | Dự báo |
-| `qa` | `qa_agent` | Data quality checks |
-| `partition` | `partition_agent` | Partition strategy & health analysis |
-| `dashboard` | `insight_agent + chart_agent + qa_agent` | Dashboard tổng hợp |
-| `full_report` | All 4 agents | Full report |
-
-### 3.3 Confidence levels (`request_orchestrator.py`)
-
-| Level | Range | Hành vi |
-|-------|-------|---------|
-| `high` | ≥ 0.72 | Tự động route |
-| `medium` | 0.45 – 0.72 | Route kèm ghi chú "có thể thay đổi nếu bạn làm rõ" |
-| `low` | < 0.45 | Yêu cầu clarification |
+### 2.5 Data Layer
+- **ClickHouse**: Dữ liệu analytics (vsf_raw → vsf_stg → vsf_mart). Agent query trực tiếp qua HTTP interface
+- **PostgreSQL (DWH)**: Operational data, audit logs, chat sessions, auth users
+- **MinIO**: Raw JSONL object store (data lake)
+- **DataHub**: Metadata store (schema, lineage, freshness).
+  Agent gọi **GraphQL API** (`POST /api/graphql`) — searchDatasets query —
+  để lấy danh sách tables, columns, tags, description.
+  Không query trực tiếp vào DB để lấy metadata.
+  Nếu DataHub offline → **fallback** query trực tiếp `system.columns` của ClickHouse
+- **Metabase**: BI dashboard embedding
 
 ---
 
-## 4. Semantic Slots — `agents/request_orchestrator.py`
+## 3. Modules & Components
 
-Trích xuất ngữ nghĩa từ câu hỏi bằng **rule-based** với fallback keyword matching. Các slots:
+### 3.1 Backend Modules
 
 ```
-intent_type  → dashboard | time_series | aggregation | lookup | full_report
-domain       → observability | llm_usage | ingestion | agent_cost
-metric       → latency | errors | cost | tokens | requests | health | …
-time_range   → 24h | 7days | 30days
-layer        → auto | gold | silver
-dimensions   → service | model | source | …
-coverage     → complete | top_n
+┌───────────────────────────────────────────────────────────┐
+│  src/backend/app/                                         │
+│                                                           │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────┐   │
+│  │   routers/     │  │   agents/      │  │ services/  │   │
+│  │                │  │                │  │            │   │
+│  │  - query       │  │  - multi_agent │  │  - llm     │   │
+│  │  - sessions    │  │  - agent_      │  │  - context_│   │
+│  │  - dashboard   │  │    planner     │  │    manager │   │
+│  │  - auth        │  │  - monitoring_ │  └────────────┘   │
+│  │                │  │    agent       │                   │
+│  │                │  │  - partition_  │  ┌────────────┐   │
+│  │                │  │    agent       │  │connectors/ │   │
+│  │                │  │  - dashboard_  │  │            │   │
+│  │                │  │    generator   │  │  - clickh. │   │
+│  │                │  │  - sql_safety  │  │  - postgres│   │
+│  │                │  │  - row_security│  │  - datahub │   │
+│  │                │  │  - chart_spec  │  │  - metabase│   │
+│  │                │  │  - table_      │  └────────────┘   │
+│  │                │  │    selector    │                   │
+│  │                │  │  - workflow_   │  ┌────────────┐   │
+│  │                │  │    graph       │  │  main.py   │   │
+│  │                │  └────────────────┘  │  config.py │   │
+│  └────────────────┘                      │ security   │   │
+│                                          │ agent.py   │   │
+│                                          │ terminal   │   │
+│                                          └────────────┘   │
+└───────────────────────────────────────────────────────────┘
 ```
 
-Mỗi slot có `value`, `confidence`, `source` (llm/rule/default).
+### 3.2 Data Pipeline Modules (Airflow DAGs)
+
+```
+┌───────────────────────────────────────────────────────────┐
+│  dags/                                                    │
+│                                                           │
+│  ┌──────────────────────┐  ┌───────────────────────────┐  │
+│  │ Data Generation      │  │ Ingestion & Transform     │  │
+│  │                      │  │                           │  │
+│  │ generate_data_stream │  │ agentic_bi_pipeline.py    │  │
+│  │ _dag.py (@hourly)    │  │ agentic_bi_staging        │  │
+│  │                      │  │ agentic_bi_mart           │  │
+│  └──────────────────────┘  └───────────────────────────┘  │
+│                                                           │
+│  ┌──────────────────────┐                                 │
+│  │ Scripts              │                                 │
+│  │                      │                                 │
+│  │ generate_data_stream │                                 │
+│  │ seed_minio/seed_dwh  │                                 │
+│  │ inspect/verify       │                                 │
+│  └──────────────────────┘                                 │
+└───────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 5. Table Selector — `agents/table_selector.py`
+## 4. Data Flow
 
-Chọn bảng phù hợp từ metadata (DataHub) dựa trên câu hỏi:
+### 4.1 User Question Flow
 
 ```
-select(question, tables)
-  ├─ Lọc bảng theo layer (gold > silver)
-  ├─ Keyword ranking: matching tên bảng/cột với câu hỏi
-  ├─ Embedding ranking (optional): similarity search
-  └─ Trả về primary_table + candidates
+Người dùng: "Show P99 latency by service for last 24h"
+
+[1] API Gateway nhận request → xác thực JWT
+    │
+[2] ContextManager load session history + memory
+    │
+[3] Orchestrator phân tích câu hỏi:
+    ├─ Intent: chart
+    ├─ Metric: latency (P99)
+    ├─ Time range: 24h
+    └─ Dimension: service
+    │
+[4] Agent Planner → chọn Chart Agent
+    │
+[5] DataHubConnector gọi DataHub GraphQL API:
+    ├─ POST /api/graphql — query searchDatasets
+    ├─ Lấy danh sách tables + columns + tags
+    ├─ Merge với live schema từ ClickHouse system.columns
+    └─ Cache kết quả (30s cho DataHub, 10s cho fallback)
+    │
+[6] Table Selector nhận merged metadata → rank bằng BM25 + keyword:
+    ├─ Ưu tiên gold layer (vsf_mart)
+    ├─ Match tên bảng/cột với câu hỏi
+    └─ Chọn primary table: fct_llm_interactions
+    │
+[7] LLM Service sinh SQL từ schema + câu hỏi
+    │
+[8] ClickHouse thực thi truy vấn → trả về rows
+    │
+[9] Chart Spec inference → line chart (time-series data)
+    │
+[10] Summarizer tổng hợp → Response (answer + chart + rows + sql)
+
+Metadata fallback: Nếu DataHub không khả dụng → DataHubConnector
+query trực tiếp ClickHouse system.columns, cache 10s.
 ```
 
-Chiến lược: `sql_link_keyword_metadata_ranking` → hybrid với embedding nếu cần.
+### 4.2 Data Pipeline Flow
+
+```
+                    Hourly
+                       │
+           ┌───────────▼───────────┐
+           │  generate_data_stream │
+           │  (@hourly)            │
+           │  Sinh dữ liệu giả     │
+           └───────────┬───────────┘
+                       │
+                       ▼
+              ┌────────────────┐
+              │  MinIO (JSONL) │
+              │  raw/.../*.jsonl│
+              └────────┬───────┘
+                       │
+          ┌────────────▼────────────┐
+          │  agentic_bi_pipeline    │
+          │  (Daily 00:00)          │
+          │  MinIO → vsf_raw        │
+          └────────────┬────────────┘
+                       │
+          ┌────────────▼────────────┐
+          │  agentic_bi_staging     │
+          │  (triggered)            │
+          │  vsf_raw → vsf_stg      │
+          └────────────┬────────────┘
+                       │
+          ┌────────────▼────────────┐
+          │  agentic_bi_mart        │
+          │  (triggered)            │
+          │  vsf_stg → vsf_mart     │
+          │  + Data Quality Checks  │
+          └─────────────────────────┘
+```
 
 ---
 
-## 6. Specialist Agents
+## 5. Các Agent và nhiệm vụ
 
-### 6.1 Chart Agent
-- Nhận: question + selected tables + slots
-- Xử lý: `LlmService.generate_sql()` → validation → execute → chart spec
-- Trả về: sql + rows + chartSpec (type: line|bar|pie|table|...)
+### 5.1 Multi-Agent Orchestrator (Control Plane)
+- Nhận câu hỏi → trích xuất semantic slots → lập kế hoạch → điều phối specialist agents
+- Xử lý clarification khi thiếu thông tin
+- Gom kết quả từ nhiều agents → tổng hợp response
 
-### 6.2 Insight Agent
-- Phân tích root-cause: latency, errors theo service/model
-- So sánh: trước/sau, service A vs B
+### 5.2 Chart Agent
+- Chuyển đổi câu hỏi tự nhiên → SQL → biểu đồ
+- Tự động suy luận kiểu biểu đồ phù hợp (line, bar, pie, table, heatmap...)
+- Xử lý các truy vấn: lookup, time-series, top N, thống kê
 
-### 6.3 Forecast Agent
-- Dự báo từ historical metrics
-- Sử dụng Simple Exponential Smoothing hoặc LLM-based
+### 5.3 Insight Agent
+- Phân tích root-cause: "Tại sao latency tăng?"
+- So sánh: trước/sau, service A vs B, weekend vs weekday
+- Phát hiện anomaly trong dữ liệu
 
-### 6.4 QA Agent
-- Kiểm tra ingestion health, data quality, failed batches
+### 5.4 Forecast Agent
+- Dự báo xu hướng từ dữ liệu lịch sử
+- LLM-based hoặc Simple Exponential Smoothing fallback
+
+### 5.5 QA Agent
+- Kiểm tra ingestion health và failed batches
+- Đánh giá data quality
 - Audit pipeline status
 
+### 5.6 Partition Agent
+- Phân tích partition strategy của ClickHouse tables
+- Phát hiện partition key, type, health
+- Đề xuất pruning filters
+
+### 5.7 Dashboard Generator
+- Tạo multi-panel dashboard từ yêu cầu tổng quan
+- Kết hợp nhiều chart/insight/QA agents
+
+### 5.8 Terminal Agent
+- Thực thi terminal commands (observation)
+- Rule-based planning, allowlist security
+- Langfuse tracing
+
 ---
 
-## 7. SQL Generation — `services/llm.py`
+## 6. Các tình huống người dùng có thể hỏi
 
-`LlmService` là OpenAI-compatible client.
+### 6.1 Analytics
+
+| Loại | Ví dụ | Agent |
+|------|-------|-------|
+| Lookup | "Show P99 latency by service for last 24h" | Chart |
+| So sánh | "Compare costs between yesterday and today" | Insight |
+| Top N | "List top 5 users by token consumption" | Chart |
+| Thống kê | "Show daily transaction volume and success rate" | Chart |
+| Tương quan | "Compare CPU and memory usage across pods" | Chart/Insight |
+
+### 6.2 Time-series & Xu hướng
+
+| Loại | Ví dụ | Agent |
+|------|-------|-------|
+| Xu hướng | "Show hourly request distribution" | Chart |
+| Dự báo | "Forecast next month cost based on current trends" | Forecast |
+| Peak hours | "Show peak usage hours across all services" | Chart |
+| Anomaly | "Detect anomalies in token usage patterns" | Insight |
+
+### 6.3 Root-cause & Insight
+
+| Loại | Ví dụ | Agent |
+|------|-------|-------|
+| Root cause | "Which services have the highest error budget burn?" | Insight |
+| So sánh tuần | "Compare weekend vs weekday usage patterns" | Insight |
+| Cost savings | "Calculate cost savings if we switch to cheaper models" | Insight/Forecast |
+
+### 6.4 Data Quality & Operations
+
+| Loại | Ví dụ | Agent |
+|------|-------|-------|
+| Ingestion health | "Check ingestion health and failed batches" | QA |
+| Data quality | "Show data quality check results" | QA |
+| Failed queries | "Find sessions with failed SQL generations" | QA |
+| Pipeline status | "Summarize failed agent queries" | QA |
+
+### 6.5 Partition & Schema
+
+| Loại | Ví dụ | Agent |
+|------|-------|-------|
+| Partition health | "Analyze partition strategy for fct_llm_interactions" | Partition |
+| Schema info | "What tables are available in vsf_mart?" | Schema API |
+
+### 6.6 Dashboard & Tổng hợp
+
+| Loại | Ví dụ | Agent |
+|------|-------|-------|
+| Dashboard | "Show me a dashboard of system health" | Dashboard Generator |
+| Full report | "Give me a full report of this week's performance" | All agents |
+| Tổng quan | "Tổng quan hệ thống hôm nay" | Dashboard Generator |
+
+### 6.7 Follow-up & Clarification
+
+| Loại | Ví dụ | Xử lý |
+|------|-------|-------|
+| Follow-up | "So sánh với tuần trước" (sau câu hỏi về latency) | ContextManager resolve memory |
+| Clarification | "Cho tôi xem metric" (không rõ metric nào) | Orchestrator hỏi lại |
+| Raw SQL | Người dùng tự nhập SQL | SQL guard + execute |
+
+---
+
+## 7. Technology Stack
+
+| Layer | Technology | Mục đích |
+|-------|-----------|----------|
+| **API Framework** | FastAPI (Python) | REST API server |
+| **Orchestration** | Airflow 3 | Data pipeline scheduling |
+| **Data Warehouse** | ClickHouse | Analytics queries (OLAP) |
+| **Operational DB** | PostgreSQL | Sessions, auth, audit |
+| **Object Storage** | MinIO | Raw JSONL storage |
+| **Metadata Store** | DataHub | Schema, lineage, freshness |
+| **BI Tool** | Metabase | Dashboard embedding |
+| **LLM Provider** | OpenAI / OpenRouter | SQL generation, synthesis |
+| **Observability** | OpenTelemetry + Langfuse | Tracing, LLM monitoring |
+| **Container** | Docker + Astro CLI | Local deployment |
+| **Data Transform** | dbt (ClickHouse) | raw → stg → mart |
+
+---
+
+## 8. Infrastructure & Deployment
+
+### 8.1 Deployment Architecture
 
 ```
-generate_sql(question, tables, datasource, limit, conversation, memory)
-  ├─ System prompt với dialect (ClickHouse SQL / PostgreSQL SQL)
-  ├─ Context: tables schema + conversation history + structured memory
-  ├─ LLM call với retry & timeout
-  ├─ Parse JSON response → sql, candidates, visualization
-  └─ Fallback: "disabled" nếu không có API key
-
-correct_sql(failed_sql, database_error) → sửa SQL lỗi
+┌────────────────────────────────────────────────────────┐
+│  VPS (47.131.228.222) — Single Host                    │
+│                                                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │  Airflow     │  │  Agent API   │  │  Data        │  │
+│  │  (Astro CLI) │  │  (FastAPI)   │  │  Services    │  │
+│  │              │  │              │  │              │  │
+│  │  - Scheduler │  │  - Chat      │  │  - ClickHouse│  │
+│  │  - Webserver │  │  - Sessions  │  │  - PostgreSQL│  │
+│  │  - DB        │  │  - Dashboard │  │  - MinIO     │  │
+│  └──────────────┘  └──────────────┘  │  - DataHub   │  │
+│                                      │  - Metabase  │  │
+│  ┌──────────────┐  ┌──────────────┐  └──────────────┘  │
+│  │  Scripts     │  │  dbt Models  │                    │
+│  │  Data Gen    │  │  Transform   │                    │
+│  └──────────────┘  └──────────────┘                    │
+└────────────────────────────────────────────────────────┘
 ```
 
-### SQL Safety (`agents/sql_safety.py`)
-- Kiểm tra read-only: chặn DDL/DML
-- Validate cú pháp trước khi execute
+### 8.2 Service Ports
 
-### Row Security (`agents/row_security.py`)
-- Lọc dữ liệu theo principal (user/role/team)
+| Service | Port |
+|---------|------|
+| Airflow UI | 18080 / 6563 |
+| ClickHouse HTTP | 18123 |
+| MinIO API | 19001 |
+| MinIO Console | 19002 |
+| Metabase | 3000 |
+| Observation Service | 18000 |
+| Postgres DWH | 5433 |
 
 ---
 
-## 8. Summarizer Agent
+## 9. Security
 
-Tổng hợp kết quả từ nhiều specialist agents thành một câu trả lời duy nhất bằng LLM.
-
----
-
-## 9. Terminal Agent — `agent.py`
-
-Agent riêng cho terminal commands (observation service):
-- `answer(message)` → `_plan(message)` → `terminal.run(command)` → `_summarize()`
-- Rule-based planning: map keyword → command
-- Allowlist security: chỉ chạy lệnh được phép
-- Langfuse tracing cho mỗi generation
+- **Authentication**: JWT tokens, role-based (admin/team/service)
+- **Row-Level Security**: Tự động thêm filters theo principal (service_name, source_app)
+- **SQL Safety**: Chặn DDL/DML, chỉ cho phép SELECT/WITH
+- **Rate Limiting**: Per-user và login rate limits
+- **Terminal Allowlist**: Chỉ cho phép commands được định nghĩa trước
 
 ---
 
 ## 10. Observability
 
-- **Langfuse**: ghi lại mỗi LLM generation (input, output, token usage, cost)
-- **OpenTelemetry**: trace toàn bộ request từ HTTP → orchestrator → specialist → DB
-- **Postgres audit**: ghi lại mỗi turn chat (question, result, timing)
-
----
-
-## Sơ đồ kiến trúc
-
-```
-┌─────────────┐     ┌───────────────────┐     ┌─────────────────┐
-│   Client    │────▶│  FastAPI Router   │────▶│ ContextManager  │
-│ (Web UI)    │     │  /api/agent/chat  │     │ (Session+Memory)│
-└─────────────┘     └───────────────────┘     └─────────────────┘
-                            │
-                            ▼
-                   ┌─────────────────┐
-                   │  Multi-Agent    │
-                   │  Orchestrator   │
-                   └────────┬────────┘
-                            │
-              ┌─────────────┼─────────────┐
-              ▼             ▼             ▼
-       ┌──────────┐  ┌──────────┐  ┌──────────┐
-       │ Semantic │  │  Agent   │  │  Table   │
-       │  Slots   │  │  Plan    │  │ Selector │
-       └──────────┘  └──────────┘  └──────────┘
-                            │
-          ┌─────────────────┼──────────────────────┐
-          ▼         ▼       ▼       ▼              ▼
-   ┌──────────┐ ┌──────────┐ ┌──────┐ ┌──────┐ ┌──────────┐
-   │  Chart   │ │ Insight  │ │Fore- │ │  QA  │ │Partition │
-   │  Agent   │ │  Agent   │ │cast  │ │Agent │ │  Agent   │
-   └────┬─────┘ └────┬─────┘ └──┬───┘ └──┬───┘ └────┬─────┘
-        │            │          │        │          │
-        └────────────┼──────────┼────────┼──────────┘
-                     ▼          ▼        ▼
-              ┌────────────┐ ┌────────┐ ┌──────────┐
-              │  LLM       │ │Click-  │ │ DataHub  │
-              │  Service   │ │House   │ │ Metadata │
-              └────────────┘ └────────┘ └──────────┘
-                     │
-                     ▼
-              ┌─────────────┐
-              │ Summarizer  │
-              │   Agent     │
-              └──────┬──────┘
-                     │
-                     ▼
-              ┌─────────────┐
-              │   Response  │
-              └─────────────┘
-```
-
----
-
-## C4 Architecture — Airflow Pipeline
-
-The pipeline is split into two DAGs for reliability:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  DAG 1: sync_external_staging_to_dwh (every 30 min)        │
-│                                                             │
-│  ┌──────────────┐   ┌─────────────────┐   ┌─────────────┐  │
-│  │ Scan MinIO   │──▶│ Validate & Load │──▶│ Trigger     │  │
-│  │ Manifests    │   │ (Stream, no     │   │ Transform   │  │
-│  │              │   │  local download)│   │ DAG         │  │
-│  └──────────────┘   └────────┬────────┘   └─────────────┘  │
-│                              │                              │
-│                     ┌────────▼────────┐                     │
-│                     │ Quarantine      │                     │
-│                     │ Failed Batches  │                     │
-│                     │ (continue flow) │                     │
-│                     └─────────────────┘                     │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                    TriggerDagRunOperator
-                              │
-┌─────────────────────────────▼───────────────────────────────┐
-│  DAG 2: transform_raw_to_gold (triggered)                   │
-│                                                             │
-│  ┌────────────────┐   ┌──────────────┐   ┌──────────────┐  │
-│  │ dbt build      │──▶│ Data Quality │──▶│ Quality Gate │  │
-│  │ (raw→silver    │   │ Checks       │   │ Results      │  │
-│  │  →gold)        │   │              │   │              │  │
-│  └────────────────┘   └──────────────┘   └──────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-Key design decisions:
-- **MinIO streaming**: Data is read directly via S3 API, never downloaded to local disk
-- **Batch quarantine**: Failed batches are logged as `quarantined` but pipeline continues
-- **Separated concerns**: Ingestion runs frequently; transform is triggered only on new data
-
----
-
-## File structure
-
-```
-src/backend/app/
-├── main.py                        # FastAPI app, wire everything
-├── agent.py                       # TerminalAgent (observation)
-├── config.py                      # Settings
-├── security.py                    # Auth + JWT
-├── observability.py               # Langfuse + OpenTelemetry
-│
-├── agents/
-│   ├── multi_agent.py             # MultiAgentOrchestrator
-│   ├── agent_planner.py           # Agent routing table + deterministic plan
-│   ├── request_orchestrator.py    # Semantic slots extraction
-│   ├── table_selector.py          # Table selection from metadata
-│   ├── partition_manager.py       # Partition key detection + health analysis
-│   ├── partition_agent.py         # Partition analysis specialist agent
-│   ├── mock_partition_data.py     # Mock data for partition testing
-│   ├── sql_safety.py              # SQL read-only validation
-│   ├── row_security.py            # Row-level security
-│   ├── chart_spec.py              # Chart visualization spec
-│   ├── dashboard_generator.py     # Dashboard generation
-│   └── monitoring_agent.py        # Base agent with connectors
-│
-├── services/
-│   ├── llm.py                     # LLM client (OpenAI-compatible)
-│   ├── context_manager.py         # Session + memory CRUD
-│   └── __init__.py
-│
-├── routers/
-│   ├── query.py                   # /chat endpoint
-│   ├── sessions.py                # Session management
-│   ├── dashboard.py               # Dashboard API
-│   └── auth.py                    # Authentication
-│
-├── connectors/
-│   ├── clickhouse.py              # ClickHouse client
-│   ├── postgres.py                # Postgres client
-│   ├── datahub.py                 # DataHub metadata client
-│   └── metabase.py                # Metabase client
-│
-└── migrations/
-    └── agentic_schema.sql         # DB schema
-
-dags/
-└── agentic_bi_pipeline.py         # 2 DAGs: Ingestion + Transform
-```
+- **LLM Tracing**: Langfuse ghi lại mỗi generation (prompt, response, tokens, cost)
+- **Distributed Tracing**: OpenTelemetry OTLP (HTTP request → orchestrator → DB query)
+- **Audit Trail**: Postgres lưu mỗi turn chat (user, question, result, timing)
+- **Logging**: JSON structured logging, auto-detect environment
