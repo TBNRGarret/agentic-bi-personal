@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
     engine='ReplacingMergeTree()',
+    partition_by='toYYYYMM(started_at)',
     order_by='(source_app_id, generation_id)'
 ) }}
 

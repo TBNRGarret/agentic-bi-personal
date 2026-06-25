@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
     engine='ReplacingMergeTree()',
+    partition_by='toYYYYMM(date)',
     order_by='(date, model)'
 ) }}
 

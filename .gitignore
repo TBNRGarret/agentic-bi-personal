@@ -26,3 +26,7 @@ pwd.pub
 airflow/logs/
 dbt/logs/
 dbt/target/
+
+.env.agentic-ui
+
+output/

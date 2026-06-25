@@ -1,6 +1,7 @@
 {{ config(
     materialized='table',
     engine='ReplacingMergeTree()',
+    partition_by='toYYYYMM(started_at)',
     order_by='interaction_id'
 ) }}
 

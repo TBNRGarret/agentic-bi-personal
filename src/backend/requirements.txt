@@ -1,5 +1,11 @@
-fastapi>=0.111,<1.0
-uvicorn[standard]>=0.30,<1.0
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.34,<1.0
+psycopg[binary,pool]>=3.2,<4.0
+httpx>=0.28,<1.0
+pydantic>=2.10,<3.0
+python-jose>=3.3,<4.0
+bcrypt>=4.2,<5.0
+sqlglot>=26.16,<27.0
 clickhouse-connect>=0.7,<1.0
 langfuse>=2.44,<3.0
 opentelemetry-api>=1.26,<2.0
