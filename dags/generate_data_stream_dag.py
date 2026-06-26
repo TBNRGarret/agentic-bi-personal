@@ -31,6 +31,7 @@ def generate_data_stream():
     generate_and_upload = BashOperator(
         task_id="generate_and_upload",
         bash_command=(
+            "MINIO_ENDPOINT=minio:9000 "
             "python3 /usr/local/airflow/include/scripts/generate_data_stream.py "
             "--save --hour '{{ data_interval_start.strftime('%Y-%m-%d-%H') }}'"
         ),
