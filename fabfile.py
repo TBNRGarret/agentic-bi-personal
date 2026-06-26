@@ -33,6 +33,7 @@ def deploy(_):
 echo "=== Connected to $(hostname) ==="
 cd {PROJECT_DIR} || {{ echo "FOLDER NOT FOUND: {PROJECT_DIR}"; exit 1; }}
 git pull origin {BRANCH}
+{COMPOSE} down --remove-orphans
 {COMPOSE} build
 {COMPOSE} up -d
 {COMPOSE} ps
