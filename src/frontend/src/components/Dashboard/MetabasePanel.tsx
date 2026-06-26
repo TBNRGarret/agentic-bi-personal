@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../services/api.service";
 import { RefreshCw, ExternalLink, Copy, Check, ShieldCheck, Activity, Timer } from "lucide-react";
 
@@ -84,7 +84,7 @@ export function MetabasePanel() {
     return (
       <div className="fade-in">
         <div className="top-action-bar premium-glass-panel">
-          <div style={{ display: "flex", itemsCenter: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <button className="btn btn-secondary" type="button" onClick={() => setActiveEmbed(null)}>
               ← Back to Dashboards
             </button>
@@ -92,7 +92,7 @@ export function MetabasePanel() {
               {activeDash?.name || "Embedded Dashboard"}
             </span>
           </div>
-          <div style={{ display: "flex", itemsCenter: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-secondary)" }}>
               <Timer size={14} color="var(--neon-orange)" />
               Auto-refresh:
