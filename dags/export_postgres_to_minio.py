@@ -186,7 +186,7 @@ def export_postgres_to_minio():
 
     trigger_pipeline = TriggerDagRunOperator(
         task_id="trigger_agentic_bi_pipeline",
-        trigger_dag_id="agentic_bi_pipeline",
+        trigger_dag_id="sync_external_staging_to_dwh",
         wait_for_completion=False,
         reset_dag_run=True,
     )

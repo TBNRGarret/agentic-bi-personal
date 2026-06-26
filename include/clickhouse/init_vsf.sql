@@ -150,4 +150,6 @@ CREATE TABLE IF NOT EXISTS vsf_mart.source_apps (
 ) ENGINE = ReplacingMergeTree()
 ORDER BY source_app_id;
 
-
+CREATE OR REPLACE VIEW vsf_stg.stg_langfuse_generations AS SELECT * FROM vsf_raw.langfuse_generations;
+CREATE OR REPLACE VIEW vsf_stg.stg_user_interactions AS SELECT * FROM vsf_raw.user_interactions;
+CREATE OR REPLACE VIEW vsf_stg.stg_signoz_logs AS SELECT * FROM vsf_raw.signoz_logs;

@@ -102,7 +102,7 @@ SELECT
     i.langfuse_trace_id,
     i.session_id,
     i.user_id_hash,
-    i.source_app_id,
+    i.source_app_id AS source_app_id,
     nullIf(app.domain, '') AS domain,
     nullIf(app.environment, '') AS environment,
     i.started_at,
