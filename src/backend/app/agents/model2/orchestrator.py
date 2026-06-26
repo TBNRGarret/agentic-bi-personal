@@ -351,8 +351,14 @@ class HybridText2SQLOrchestrator:
     ) -> tuple[str, list[dict[str, Any]], str]:
         last_sql = failed_sql
         last_error = database_error
+        error_history: list[dict[str, Any]] = []
         for retry in range(self.settings.agent_retry_count):
-            emit({"type": "stage", "stage": "model2.refiner", "message": "Repairing SQL from database feedback"})
+            error_history.append({
+                "attempt": retry + 1,
+                "failedSql": last_sql,
+                "databaseError": last_error,
+            })
+            emit({"type": "stage", "stage": "model2.refiner", "message": f"Repairing SQL from database feedback (retry {retry + 1})"})
             correction = await self.refiner.refine(
                 question=question,
                 failed_sql=last_sql,
@@ -362,6 +368,7 @@ class HybridText2SQLOrchestrator:
                 limit=limit,
                 llm=self.llm,
                 request_plan=request_plan,
+                error_history=error_history,
             )
             fixed_sql = str(correction.get("sql") or "").strip()
             if not fixed_sql:
@@ -385,6 +392,7 @@ class HybridText2SQLOrchestrator:
                         "sql": prepared_sql,
                         "status": "success",
                         "rowCount": len(rows),
+                        "errorClassification": correction.get("errorClassification"),
                     }
                 )
                 return prepared_sql, rows, ""
@@ -399,6 +407,7 @@ class HybridText2SQLOrchestrator:
                         "sql": fixed_sql,
                         "status": "error",
                         "error": last_error,
+                        "errorClassification": correction.get("errorClassification"),
                     }
                 )
         return last_sql, [], last_error
