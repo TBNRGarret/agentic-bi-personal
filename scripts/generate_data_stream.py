@@ -209,7 +209,7 @@ _last_generated_hour: str | None = None
 
 
 def _hour_partition(dt: datetime) -> str:
-    return dt.strftime("hour=%Y-%m-%d-%H")
+    return dt.strftime("year=%Y/month=%m/day=%d/hour=%H")
 
 
 def raw_payload(**values: Any) -> str:
