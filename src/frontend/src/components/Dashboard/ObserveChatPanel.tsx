@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, Sparkles } from "lucide-react";
+import { Cpu, Send, Sparkles } from "lucide-react";
 import { api } from "../../services/api.service";
 import { DynamicChart, type ChartSpec } from "../Charts/DynamicChart";
 import { MarkdownRenderer } from "./MarkdownRenderer";
@@ -29,6 +29,7 @@ interface UsageSummary {
 interface ObserveChatResponse {
   answer?: string;
   agent?: string;
+  model?: string;
   intent?: string;
   status?: string;
   executionTimeMs?: number;
@@ -96,6 +97,8 @@ interface ChatSession {
     payload?: ObserveChatResponse;
   }>;
 }
+
+type AgentModel = "model1" | "model2";
 
 interface StreamEvent {
   type?: "stage" | "delta" | "final";
@@ -411,6 +414,7 @@ export function ObserveChatPanel() {
   const [progressMessage, setProgressMessage] = useState("Dang phan tich telemetry...");
   const [loading, setLoading] = useState(false);
   const [windowHours, setWindowHours] = useState(24);
+  const [agentModel, setAgentModel] = useState<AgentModel>("model1");
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [sessionId, setSessionId] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -469,6 +473,7 @@ export function ObserveChatPanel() {
         windowHours,
         conversation,
         activeSessionId,
+        agentModel,
       );
       if (!response.ok || !response.body) {
         throw new Error(`Stream failed: ${response.statusText || response.status}`);
@@ -564,6 +569,13 @@ export function ObserveChatPanel() {
               <Sparkles size={16} />
               <span>Monitoring chat</span>
             </div>
+            <label className="observe-window-control">
+              <span>Model</span>
+              <select value={agentModel} onChange={(event) => setAgentModel(event.target.value as AgentModel)} disabled={loading}>
+                <option value="model1">Model 1</option>
+                <option value="model2">Model 2 Hybrid</option>
+              </select>
+            </label>
             <label className="observe-window-control">
               <span>Window</span>
               <select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
@@ -691,7 +703,27 @@ export function ObserveChatPanel() {
             <div ref={scrollRef} />
           </div>
 
-          <div className="observe-input-row">
+          <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.12)", background: "rgba(15, 23, 42, 0.78)", padding: "12px 20px 0" }}>
+            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10 }}>
+              <div style={{ alignItems: "center", color: "#cbd5e1", display: "flex", fontSize: 12, fontWeight: 700, gap: 8, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                <Cpu size={15} />
+                Model
+              </div>
+              <div style={{ background: "rgba(15, 23, 42, 0.9)", border: "1px solid rgba(148, 163, 184, 0.35)", borderRadius: 10, display: "grid", gridTemplateColumns: "1fr 1fr", minWidth: 280, overflow: "hidden", padding: 3 }}>
+                <button type="button" onClick={() => setAgentModel("model1")} disabled={loading} style={{ background: agentModel === "model1" ? "#f97316" : "transparent", border: 0, borderRadius: 7, color: agentModel === "model1" ? "#fff7ed" : "#94a3b8", cursor: loading ? "not-allowed" : "pointer", fontWeight: 800, minHeight: 34, padding: "0 14px" }}>
+                  Model 1
+                </button>
+                <button type="button" onClick={() => setAgentModel("model2")} disabled={loading} style={{ background: agentModel === "model2" ? "#06b6d4" : "transparent", border: 0, borderRadius: 7, color: agentModel === "model2" ? "#ecfeff" : "#94a3b8", cursor: loading ? "not-allowed" : "pointer", fontWeight: 800, minHeight: 34, padding: "0 14px" }}>
+                  Model 2 Hybrid
+                </button>
+              </div>
+              <span style={{ color: "#94a3b8", fontSize: 12 }}>
+                {agentModel === "model2" ? "MAC-SQL + QueryWeaver hybrid" : "Current production pipeline"}
+              </span>
+            </div>
+          </div>
+
+          <div className="observe-input-row" style={{ borderTop: 0 }}>
             <textarea
               className="observe-chat-input"
               placeholder="Hoi ve loi, latency, alert, trace, log hoac suc khoe he thong..."

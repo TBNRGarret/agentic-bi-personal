@@ -4,6 +4,7 @@ import {
   Calculator,
   Clipboard,
   Copy,
+  Cpu,
   Database,
   Download,
   FileSearch,
@@ -106,6 +107,7 @@ interface BiCostEstimate {
 
 type Mode = "sql" | "chat";
 type Target = "auto" | "dwh" | "clickhouse";
+type AgentModel = "model1" | "model2";
 type HistoryFilter = "recent" | "favorites";
 
 const HISTORY_KEY = "observation.bi.queryHistory.v1";
@@ -776,6 +778,7 @@ export function QueryConsolePanel() {
   const [explainLoading, setExplainLoading] = useState(false);
   const [explainError, setExplainError] = useState("");
   const [chatTarget, setChatTarget] = useState<Target>("auto");
+  const [chatModel, setChatModel] = useState<AgentModel>("model1");
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -953,6 +956,7 @@ export function QueryConsolePanel() {
         100,
         conversation,
         chatSessionId || undefined,
+        chatModel,
       );
       if (!response.ok || !response.body) {
         const err = await response.json().catch(() => ({ error: response.statusText || response.status }));
@@ -1034,6 +1038,15 @@ export function QueryConsolePanel() {
           BI Chat
         </button>
         <div style={{ flex: 1 }} />
+        {mode === "chat" && (
+          <label className="bi-target-control">
+            <Cpu size={14} />
+            <select value={chatModel} onChange={(event) => setChatModel(event.target.value as AgentModel)} disabled={chatLoading}>
+              <option value="model1">Model 1</option>
+              <option value="model2">Model 2 Hybrid</option>
+            </select>
+          </label>
+        )}
         {mode === "chat" && (
           <label className="bi-target-control">
             <Database size={14} />
@@ -1213,6 +1226,24 @@ export function QueryConsolePanel() {
               )}
               <div ref={scrollRef} />
             </div>
+            <div style={{ borderTop: "1px solid rgba(148, 163, 184, 0.18)", display: "flex", flexWrap: "wrap", gap: 10, padding: "12px 14px 0" }}>
+              <div style={{ alignItems: "center", color: "#cbd5e1", display: "flex", fontSize: 12, fontWeight: 700, gap: 8, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                <Cpu size={15} />
+                Model
+              </div>
+              <div style={{ background: "rgba(15, 23, 42, 0.9)", border: "1px solid rgba(148, 163, 184, 0.35)", borderRadius: 10, display: "grid", gridTemplateColumns: "1fr 1fr", minWidth: 280, overflow: "hidden", padding: 3 }}>
+                <button type="button" onClick={() => setChatModel("model1")} disabled={chatLoading} style={{ background: chatModel === "model1" ? "#f97316" : "transparent", border: 0, borderRadius: 7, color: chatModel === "model1" ? "#fff7ed" : "#94a3b8", cursor: chatLoading ? "not-allowed" : "pointer", fontWeight: 800, minHeight: 34, padding: "0 14px" }}>
+                  Model 1
+                </button>
+                <button type="button" onClick={() => setChatModel("model2")} disabled={chatLoading} style={{ background: chatModel === "model2" ? "#06b6d4" : "transparent", border: 0, borderRadius: 7, color: chatModel === "model2" ? "#ecfeff" : "#94a3b8", cursor: chatLoading ? "not-allowed" : "pointer", fontWeight: 800, minHeight: 34, padding: "0 14px" }}>
+                  Model 2 Hybrid
+                </button>
+              </div>
+              <span style={{ alignSelf: "center", color: "#94a3b8", fontSize: 12 }}>
+                {chatModel === "model2" ? "MAC-SQL + QueryWeaver hybrid" : "Current production pipeline"}
+              </span>
+            </div>
+
             <div className="chat-input-row">
               <input
                 className="chat-input"

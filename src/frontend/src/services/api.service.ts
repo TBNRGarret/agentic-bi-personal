@@ -65,10 +65,11 @@ export const api = {
     limit = 100,
     conversation: Record<string, unknown>[] = [],
     sessionId?: string,
+    model = "model1",
   ) =>
     request<Record<string, unknown>>("/api/query/chat", {
       method: "POST",
-      body: JSON.stringify({ question, target, limit, conversation, sessionId }),
+      body: JSON.stringify({ question, target, model, limit, conversation, sessionId }),
     }),
   chatQueryStream: (
     question: string,
@@ -76,11 +77,12 @@ export const api = {
     limit = 100,
     conversation: Record<string, unknown>[] = [],
     sessionId?: string,
+    model = "model1",
   ) =>
     fetch(`${API_BASE}/api/query/chat/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ question, target, limit, conversation, sessionId }),
+      body: JSON.stringify({ question, target, model, limit, conversation, sessionId }),
     }),
   generateDashboard: (
     question: string,
@@ -107,12 +109,14 @@ export const api = {
     question: string,
     windowHours = 24,
     conversation: Record<string, unknown>[] = [],
+    model = "model1",
   ) =>
     request<Record<string, unknown>>("/api/query/chat", {
       method: "POST",
       body: JSON.stringify({
         question,
         target: "auto",
+        model,
         windowHours,
         conversation,
       }),
@@ -122,6 +126,7 @@ export const api = {
     windowHours = 24,
     conversation: Record<string, unknown>[] = [],
     sessionId?: string,
+    model = "model1",
   ) =>
     fetch(`${API_BASE}/api/monitoring/chat/stream`, {
       method: "POST",
@@ -129,6 +134,7 @@ export const api = {
       body: JSON.stringify({
         question,
         target: "auto",
+        model,
         windowHours,
         conversation,
         sessionId,
