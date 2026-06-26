@@ -33,9 +33,7 @@ def deploy(_):
 echo "=== Connected to $(hostname) ==="
 cd {PROJECT_DIR} || {{ echo "FOLDER NOT FOUND: {PROJECT_DIR}"; exit 1; }}
 git fetch origin {BRANCH}
-git reset --hard origin/{BRANCH}
 {COMPOSE} build
-docker rm -f agentic-bi-minio agentic-bi-minio-init 2>/dev/null || true
 {COMPOSE} down --remove-orphans 2>/dev/null || true
 {COMPOSE} up -d --remove-orphans
 {COMPOSE} ps
