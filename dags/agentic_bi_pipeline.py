@@ -180,11 +180,11 @@ def normalize_value(column: str, value):
 
 def parse_object_path(object_name: str) -> tuple[str, str, UUID]:
     parts = object_name.split("/")
-    if len(parts) != 4 or parts[0] != "raw" or not parts[3].endswith(".jsonl"):
+    if len(parts) != 8 or parts[0] != "raw" or not parts[7].endswith(".jsonl"):
         raise ValueError(f"Unexpected raw object path: {object_name}")
     source_app_id = parts[1]
     source_table = parts[2]
-    batch_id = UUID(parts[3].removesuffix(".jsonl"))
+    batch_id = UUID(parts[7].removesuffix(".jsonl"))
     if source_table not in EXPECTED_SOURCE_TABLES:
         raise ValueError(f"Unsupported raw source table: {source_table}")
     return source_app_id, source_table, batch_id
@@ -192,9 +192,9 @@ def parse_object_path(object_name: str) -> tuple[str, str, UUID]:
 
 def parse_manifest_path(object_name: str) -> tuple[str, UUID]:
     parts = object_name.split("/")
-    if len(parts) != 4 or parts[0] != "raw" or parts[2] != "_manifests" or not parts[3].endswith(".json"):
+    if len(parts) != 8 or parts[0] != "raw" or parts[2] != "_manifests" or not parts[7].endswith(".json"):
         raise ValueError(f"Unexpected manifest object path: {object_name}")
-    return parts[1], UUID(parts[3].removesuffix(".json"))
+    return parts[1], UUID(parts[7].removesuffix(".json"))
 
 
 def read_object_text(client: Minio, object_name: str) -> str:
