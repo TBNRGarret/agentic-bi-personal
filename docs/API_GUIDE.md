@@ -170,7 +170,7 @@ curl -s http://localhost:19001/minio/health/live
 # http://47.131.228.222:18080 → DAGs → agentic_bi_pipeline → Play
 
 # Hoặc từ CLI (trong VPS)
-docker exec agentic-bi-airflow-scheduler airflow dags trigger agentic_bi_pipeline
+astro dev run airflow dags trigger agentic_bi_pipeline
 ```
 
 ### Kiểm tra dữ liệu trong ClickHouse
@@ -199,9 +199,9 @@ source .venv/bin/activate
 docker logs datahub-gms --tail 50
 docker logs datahub-frontend --tail 50
 
-# Airflow
-docker logs agentic-bi-airflow-scheduler --tail 50
-docker logs agentic-bi-airflow-webserver --tail 50
+# Airflow (Astro CLI)
+astro dev logs scheduler --tail 50
+astro dev logs webserver --tail 50
 
 # ClickHouse
 docker logs agentic_clickhouse --tail 20
@@ -210,7 +210,10 @@ docker logs agentic_clickhouse --tail 20
 ### Restart service
 
 ```bash
-docker compose restart airflow-webserver airflow-scheduler
+# Airflow (Astro CLI)
+astro dev restart
+
+# DataHub
 docker compose -p datahub-vps restart datahub-gms datahub-frontend
 ```
 

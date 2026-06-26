@@ -1,4 +1,10 @@
+# Agentic BI - Docker Compose
+#
+# Data foundation services + Astro CLI sidecars.
+# Airflow itself is managed via Astro CLI: `astro dev start` / `astro dev stop`.
+
 services:
+  # ── Data Warehouse ──────────────────────────────────────────
   postgres-dwh:
     image: postgres:16-alpine
     container_name: agentic-bi-postgres-dwh
@@ -13,6 +19,8 @@ services:
     volumes:
       - postgres_dwh_data:/var/lib/postgresql/data
       - ./dwh/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - airflow
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dwh_admin -d central_dwh"]
       interval: 10s
@@ -20,39 +28,68 @@ services:
       retries: 5
       start_period: 10s
 
+  # ── MinIO (Object Store) ────────────────────────────────────
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: agentic-bi-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minio_admin
-      MINIO_ROOT_PASSWORD: minio_admin_password
-      TZ: UTC
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "19001:9000"
+      - "19002:9001"
     volumes:
       - minio_data:/data
+    networks:
+      - airflow
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   minio-init:
     image: minio/mc:latest
     container_name: agentic-bi-minio-init
+    restart: "no"
     depends_on:
       minio:
-        condition: service_started
+        condition: service_healthy
     entrypoint: /bin/sh
     command:
       - -c
       - |
-        until mc alias set local http://minio:9000 minio_admin minio_admin_password; do
+        until mc alias set local http://minio:9000 minioadmin minioadmin; do
           sleep 2
         done
-        mc mb -p local/telemetry-landing
-        mc anonymous set none local/telemetry-landing
+        mc mb -p local/agentic-bi-raw
         mc ls local
-    restart: "no"
+    networks:
+      - airflow
 
+  # ── ClickHouse (Analytics DB) ───────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    container_name: agentic_clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_PASSWORD: ${AGENTIC_CLICKHOUSE_PASSWORD:-securepassword}
+    ports:
+      - "18123:8123"
+      - "19000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - airflow
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Metabase (BI / Dashboards) ──────────────────────────────
   metabase-db:
     image: postgres:16-alpine
     container_name: agentic-bi-metabase-db
@@ -64,6 +101,8 @@ services:
       TZ: UTC
     volumes:
       - metabase_db_data:/var/lib/postgresql/data
+    networks:
+      - airflow
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U metabase -d metabase"]
       interval: 10s
@@ -92,83 +131,53 @@ services:
       TZ: UTC
     ports:
       - "3000:3000"
+    networks:
+      - airflow
 
-  # AIRFLOW SERVICES
-  postgres-airflow:
-    image: postgres:16-alpine
-    container_name: agentic-bi-postgres-airflow
+  # ── Observation Service (Backend API) ───────────────────────
+  observation-service:
+    build:
+      context: .
+      dockerfile: src/backend/Dockerfile
+    container_name: agentic_observation_service
     restart: unless-stopped
     environment:
-      POSTGRES_DB: airflow
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow_password
-      TZ: UTC
+      OBSERVATION_ENVIRONMENT: ${OBSERVATION_ENVIRONMENT:-local}
+      OBSERVATION_REPO_ROOT: /workspace
+      SOURCE_APP_ID: ${SOURCE_APP_ID:-agentic-bi-terminal-agent}
+      OBSERVATION_TERMINAL_TIMEOUT_SECONDS: ${OBSERVATION_TERMINAL_TIMEOUT_SECONDS:-5}
+      OBSERVATION_TERMINAL_MAX_OUTPUT_CHARS: ${OBSERVATION_TERMINAL_MAX_OUTPUT_CHARS:-12000}
+      OBSERVATION_TERMINAL_ALLOWLIST: ${OBSERVATION_TERMINAL_ALLOWLIST:-date,whoami,pwd,ls,git status,python --version,python -V}
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${AGENTIC_CLICKHOUSE_PASSWORD:-securepassword}
+      CLICKHOUSE_SECURE: "false"
+      OBSERVATION_QUERY_TIMEOUT_SECONDS: ${OBSERVATION_QUERY_TIMEOUT_SECONDS:-10}
+      DISABLED_ANALYTICS_TABLES: ${DISABLED_ANALYTICS_TABLES:-}
+      DATAHUB_GMS_URL: ${DATAHUB_GMS_URL:-http://datahub-gms:8080}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse-web:3000}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-agentic-bi-observation-service}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://signoz-otel-collector:4317}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
-      - "5432:5432"
+      - "18000:8000"
     volumes:
-      - postgres_airflow_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  airflow-webserver:
-    image: apache/airflow:2.10.0
-    container_name: agentic-bi-airflow-webserver
-    restart: unless-stopped
+      - .:/workspace:ro
+    networks:
+      - airflow
     depends_on:
-      postgres-airflow:
+      clickhouse:
         condition: service_healthy
-    environment: &airflow_env
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow_password@postgres-airflow:5432/airflow
-      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-      AIRFLOW__CORE__FERNET_KEY: ""
-      AIRFLOW_CONN_MINIO_S3: '{"conn_type": "aws", "login": "minio_admin", "password": "minio_admin_password", "extra": {"endpoint_url": "http://47.131.228.222:9000", "region_name": "us-east-1"}}'
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/plugins:/opt/airflow/plugins
-      - ./airflow/logs:/opt/airflow/logs
-      - ./scripts:/opt/airflow/scripts
-      - ./infra/airflow/requirements.txt:/opt/airflow/requirements.txt
-      - ./dbt:/opt/airflow/dbt
-    entrypoint:
-      - /bin/bash
-      - -c
-      - |
-        pip install -r /opt/airflow/requirements.txt --quiet
-        airflow db init
-        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com 2>/dev/null || true
-        airflow webserver
 
-  airflow-scheduler:
-    image: apache/airflow:2.10.0
-    container_name: agentic-bi-airflow-scheduler
-    restart: unless-stopped
-    depends_on:
-      postgres-airflow:
-        condition: service_healthy
-    environment: *airflow_env
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/plugins:/opt/airflow/plugins
-      - ./airflow/logs:/opt/airflow/logs
-      - ./scripts:/opt/airflow/scripts
-      - ./infra/airflow/requirements.txt:/opt/airflow/requirements.txt
-      - ./dbt:/opt/airflow/dbt
-    entrypoint:
-      - /bin/bash
-      - -c
-      - |
-        pip install -r /opt/airflow/requirements.txt --quiet
-        airflow scheduler
+networks:
+  airflow:
+    driver: bridge
 
 volumes:
   postgres_dwh_data:
   minio_data:
   metabase_db_data:
-  postgres_airflow_data:
+  clickhouse_data:

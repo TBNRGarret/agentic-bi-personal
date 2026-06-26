@@ -1,4 +1,4 @@
-.PHONY: up down reset psql-dwh psql-airflow logs inspect
+.PHONY: up down reset psql-dwh logs inspect
 
 up:
 	docker compose up -d
@@ -11,9 +11,6 @@ reset:
 
 psql-dwh:
 	docker exec -it agentic-bi-postgres-dwh psql -U dwh_admin -d central_dwh
-
-psql-airflow:
-	docker exec -it agentic-bi-postgres-airflow psql -U airflow -d airflow
 
 logs:
 	docker compose logs -f
