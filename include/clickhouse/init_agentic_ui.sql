@@ -78,6 +78,71 @@ FROM vsf_raw.langfuse_generations g
 LEFT JOIN vsf_raw.user_interactions i ON g.trace_id = i.langfuse_trace_id AND g.source_app_id = i.source_app_id
 LEFT JOIN vsf_mart.source_apps app ON g.source_app_id = app.source_app_id;
 
+-- ── Gold Mart Views (thay thế dbt gold models) ────────────────────────────
+
+CREATE OR REPLACE VIEW vsf_mart.fct_llm_interactions AS
+WITH interactions AS (
+    SELECT * FROM silver.silver_user_interactions
+),
+logs AS (
+    SELECT
+        source_app_id,
+        trace_id,
+        groupArray(message) AS error_messages,
+        count() AS error_log_count
+    FROM silver.silver_signoz_logs
+    WHERE severity IN ('ERROR', 'FATAL') AND trace_id != ''
+    GROUP BY source_app_id, trace_id
+),
+source_apps AS (
+    SELECT * FROM vsf_mart.source_apps
+)
+SELECT
+    i.interaction_id,
+    i.langfuse_trace_id,
+    i.session_id,
+    i.user_id_hash,
+    i.source_app_id,
+    nullIf(app.domain, '') AS domain,
+    nullIf(app.environment, '') AS environment,
+    i.started_at,
+    i.ended_at,
+    i.model,
+    i.provider,
+    i.prompt_text,
+    i.response_text,
+    i.input_tokens,
+    i.output_tokens,
+    i.total_tokens,
+    i.total_cost_usd,
+    i.latency_ms,
+    i.status,
+    COALESCE(l.error_log_count, 0) AS error_log_count,
+    arrayStringConcat(l.error_messages, '; ') AS error_details,
+    i.batch_id,
+    i.ingested_at
+FROM interactions i
+LEFT JOIN logs l ON i.langfuse_trace_id = l.trace_id AND i.source_app_id = l.source_app_id
+LEFT JOIN source_apps app ON i.source_app_id = app.source_app_id;
+
+CREATE OR REPLACE VIEW vsf_mart.gold_app_daily_cost AS
+SELECT
+    toDate(started_at) AS date,
+    source_app_id,
+    domain,
+    environment,
+    provider,
+    model,
+    count() AS request_count,
+    sum(total_tokens) AS total_tokens,
+    sum(total_cost_usd) AS total_cost_usd,
+    avg(latency_ms) AS avg_latency_ms,
+    quantile(0.95)(latency_ms) AS p95_latency_ms,
+    sum(if(status = 'failed' OR error_log_count > 0, 1, 0)) AS error_count,
+    error_count / request_count AS error_rate
+FROM vsf_mart.fct_llm_interactions
+GROUP BY date, source_app_id, domain, environment, provider, model;
+
 -- ── Existing Gold Views ────────────────────────────────────────────────────
 
 CREATE OR REPLACE VIEW gold.gold_llm_usage_daily AS
