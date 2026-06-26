@@ -19,7 +19,7 @@ from fabric import Connection, task
 from invoke import Collection, run as local_run
 PROJECT_DIR = "agentic-bi"
 BRANCH = "dev"
-COMPOSE = "docker compose -p agentic-bi -f docker-compose.yml -f docker-compose.agentic-ui.yml"
+COMPOSE = "docker compose -f docker-compose.yml -f docker-compose.agentic-ui.yml"
 
 
 @task
@@ -33,12 +33,8 @@ def deploy(_):
 echo "=== Connected to $(hostname) ==="
 cd {PROJECT_DIR} || {{ echo "FOLDER NOT FOUND: {PROJECT_DIR}"; exit 1; }}
 git pull origin {BRANCH}
-# Force-kill any stale docker-proxy processes holding known ports
-sudo fuser -k 5432/tcp 19001/tcp 19002/tcp 18123/tcp 2>/dev/null || true
-{COMPOSE} down --remove-orphans
-sleep 3
-{COMPOSE} build --no-cache --pull
-{COMPOSE} up -d --force-recreate
+{COMPOSE} build
+{COMPOSE} up -d
 {COMPOSE} ps
 """
     conn.run(script, echo=True, pty=True)
