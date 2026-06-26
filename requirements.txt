@@ -9,8 +9,6 @@ minio>=7.2,<8.0
 # PostgreSQL DWH connectivity (reuse sprint-1 postgres_dwh)
 psycopg2-binary>=2.9,<3.0
 
-# dbt with ClickHouse adapter (for S1.3)
-dbt-clickhouse>=1.8,<2.0
 
 # DataHub CLI and dependencies
 acryl-datahub

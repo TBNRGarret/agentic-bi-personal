@@ -10,8 +10,7 @@ DAG 1: sync_external_staging_to_dwh
 
 DAG 2: transform_raw_to_gold
   - Triggered by DAG 1 (not scheduled independently)
-  - Runs dbt build (raw → silver → gold)
-  - Validates business quality rules
+  - Validates business quality rules on gold layer views
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ from pathlib import Path
 from uuid import UUID
 
 import clickhouse_connect
-from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.sdk import Asset, dag, task
 from minio import Minio
@@ -42,7 +40,6 @@ MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 
 INIT_SQL_PATH = Path(os.getenv("AGENTIC_INIT_SQL_PATH", "/usr/local/airflow/include/clickhouse/init_vsf.sql"))
-DBT_PROJECT_DIR = "/usr/local/airflow/include/dbt_project"
 
 RAW_TABLE_COLUMNS = {
     "signoz_logs": [
@@ -231,6 +228,24 @@ def execute_init_sql(ch_client) -> None:
             ch_client.command(statement)
 
 
+def ensure_source_apps(ch_client) -> None:
+    """Seed vsf_mart.source_apps with known source applications."""
+    ch_client.command("""
+        INSERT INTO vsf_mart.source_apps
+        (source_app_id, source_app_name, domain, environment, owner_team,
+         source_dwh_type, source_dwh_name, is_active, created_at, updated_at)
+        VALUES
+        ('hoang_ai_chat', 'Hoang AI Chat', 'observability', 'dev', 'hoang',
+         'minio', 'agentic-bi-raw', 1, '2026-06-10 00:00:00', '2026-06-14 00:00:00'),
+        ('an_ai_chat', 'An AI Chat', 'finance', 'dev', 'an',
+         'minio', 'agentic-bi-raw', 1, '2026-06-10 00:00:00', '2026-06-14 00:00:00'),
+        ('tuan_ai_chat', 'Tuan AI Chat', 'healthcare', 'dev', 'tuan',
+         'minio', 'agentic-bi-raw', 1, '2026-06-10 00:00:00', '2026-06-14 00:00:00'),
+        ('bach_ai_chat', 'Bach AI Chat', 'education', 'dev', 'bach',
+         'minio', 'agentic-bi-raw', 1, '2026-06-10 00:00:00', '2026-06-14 00:00:00')
+    """)
+
+
 def delete_audit_row(ch_client, *, batch_id: UUID, source_app_id: str, source_table: str) -> None:
     ch_client.command(
         "ALTER TABLE vsf_raw.raw_ingestion_batches DELETE "
@@ -377,6 +392,7 @@ def sync_external_staging_to_dwh():
 
         try:
             execute_init_sql(ch_client)
+            ensure_source_apps(ch_client)
 
             for manifest_object_name in manifest_paths:
                 try:
@@ -489,7 +505,7 @@ sync_external_staging_to_dwh()
 
 
 # ===========================================================================
-# DAG 2: Transform — dbt build + data quality gate
+# DAG 2: Transform — data quality gate (views replace dbt)
 # ===========================================================================
 
 transform_default_args = {
@@ -504,23 +520,13 @@ transform_default_args = {
 @dag(
     dag_id="transform_raw_to_gold",
     default_args=transform_default_args,
-    description="Run dbt transformations (raw → silver → gold) and validate business quality rules.",
+    description="Validate business quality rules on gold layer views.",
     schedule=None,  # Triggered by ingestion DAG
     catchup=False,
     max_active_runs=1,
-    tags=["agentic_bi", "dbt", "silver", "gold", "data-quality"],
+    tags=["agentic_bi", "silver", "gold", "data-quality"],
 )
 def transform_raw_to_gold():
-
-    run_dbt = BashOperator(
-        task_id="run_dbt_transformations",
-        bash_command=f"dbt build --project-dir {DBT_PROJECT_DIR} --profiles-dir {DBT_PROJECT_DIR} --target-path /tmp/dbt_target --log-path /tmp/dbt_logs",
-        env={
-            "DBT_PROFILES_DIR": DBT_PROJECT_DIR,
-            "AGENTIC_DBT_CLICKHOUSE_PORT": "8123",
-            "AGENTIC_DBT_CLICKHOUSE_HOST": "agentic_clickhouse",
-        },
-    )
 
     @task(outlets=[gold_asset])
     def run_custom_data_quality_checks():
@@ -626,7 +632,6 @@ def transform_raw_to_gold():
         print("All Data Quality checks passed successfully.")
 
     dq_task = run_custom_data_quality_checks()
-    run_dbt >> dq_task
 
 
 transform_raw_to_gold()
