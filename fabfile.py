@@ -32,9 +32,11 @@ def deploy(_):
     script = f"""
 echo "=== Connected to $(hostname) ==="
 cd {PROJECT_DIR} || {{ echo "FOLDER NOT FOUND: {PROJECT_DIR}"; exit 1; }}
-git pull origin {BRANCH}
+git fetch origin {BRANCH}
+git reset --hard origin/{BRANCH}
 {COMPOSE} build
-{COMPOSE} up -d
+{COMPOSE} down --remove-orphans 2>/dev/null || true
+{COMPOSE} up -d --remove-orphans
 {COMPOSE} ps
 """
     conn.run(script, echo=True, pty=True)
