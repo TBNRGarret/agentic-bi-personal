@@ -18,10 +18,12 @@ const ICONS: Record<string, JSX.Element> = {
   check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>,
   terminal: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>,
   "bar-chart": <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>,
+  graph: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M8.6 7.5 10.8 15"/><path d="M15.4 7.5 13.2 15"/><path d="M9 6h6"/></svg>,
 };
 
 export function Sidebar({ activePage, onNavigate, user, onLogout }: SidebarProps) {
-  const items = NAV_ITEMS.filter((item) => item.id !== "metabase" || user.role === "admin");
+  const adminOnlyPages: Page[] = ["metabase", "graph-database"];
+  const items = NAV_ITEMS.filter((item) => !adminOnlyPages.includes(item.id) || user.role === "admin");
   const sections = [...new Set(items.map((i) => i.section))];
 
   return (

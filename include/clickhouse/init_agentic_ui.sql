@@ -76,7 +76,7 @@ SELECT
     g.ingested_at AS loaded_at
 FROM vsf_raw.langfuse_generations g
 LEFT JOIN vsf_raw.user_interactions i ON g.trace_id = i.langfuse_trace_id AND g.source_app_id = i.source_app_id
-LEFT JOIN vsf_mart.source_apps app ON g.source_app_id = app.source_app_id;
+LEFT JOIN (SELECT * FROM vsf_mart.source_apps FINAL) app ON g.source_app_id = app.source_app_id;
 
 -- ── Gold Mart Views (thay thế dbt gold models) ────────────────────────────
 
@@ -95,7 +95,7 @@ logs AS (
     GROUP BY source_app_id, trace_id
 ),
 source_apps AS (
-    SELECT * FROM vsf_mart.source_apps
+    SELECT * FROM vsf_mart.source_apps FINAL
 )
 SELECT
     i.interaction_id,

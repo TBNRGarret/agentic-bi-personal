@@ -177,11 +177,11 @@ def normalize_value(column: str, value):
 
 def parse_object_path(object_name: str) -> tuple[str, str, UUID]:
     parts = object_name.split("/")
-    if len(parts) != 8 or parts[0] != "raw" or not parts[7].endswith(".jsonl"):
+    if parts[0] != "raw" or not parts[-1].endswith(".jsonl"):
         raise ValueError(f"Unexpected raw object path: {object_name}")
     source_app_id = parts[1]
     source_table = parts[2]
-    batch_id = UUID(parts[7].removesuffix(".jsonl"))
+    batch_id = UUID(parts[-1].removesuffix(".jsonl"))
     if source_table not in EXPECTED_SOURCE_TABLES:
         raise ValueError(f"Unsupported raw source table: {source_table}")
     return source_app_id, source_table, batch_id
@@ -189,9 +189,9 @@ def parse_object_path(object_name: str) -> tuple[str, str, UUID]:
 
 def parse_manifest_path(object_name: str) -> tuple[str, UUID]:
     parts = object_name.split("/")
-    if len(parts) != 8 or parts[0] != "raw" or parts[2] != "_manifests" or not parts[7].endswith(".json"):
+    if parts[0] != "raw" or parts[2] != "_manifests" or not parts[-1].endswith(".json"):
         raise ValueError(f"Unexpected manifest object path: {object_name}")
-    return parts[1], UUID(parts[7].removesuffix(".json"))
+    return parts[1], UUID(parts[-1].removesuffix(".json"))
 
 
 def read_object_text(client: Minio, object_name: str) -> str:
@@ -230,6 +230,10 @@ def execute_init_sql(ch_client) -> None:
 
 def ensure_source_apps(ch_client) -> None:
     """Seed vsf_mart.source_apps with known source applications."""
+    ch_client.command("""
+        ALTER TABLE vsf_mart.source_apps DELETE
+        WHERE source_app_id IN ('hoang_ai_chat', 'an_ai_chat', 'tuan_ai_chat', 'bach_ai_chat')
+    """)
     ch_client.command("""
         INSERT INTO vsf_mart.source_apps
         (source_app_id, source_app_name, domain, environment, owner_team,

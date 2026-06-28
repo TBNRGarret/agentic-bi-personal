@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ...config import Settings
+from ...connectors.falkordb import FalkorGraphConnector
 from ..table_selector import TableSelector
 
 if TYPE_CHECKING:
@@ -10,6 +11,8 @@ if TYPE_CHECKING:
     from ...connectors.datahub import DataHubConnector
     from ...connectors.postgres import PostgresConnector
 from .contracts import SchemaRetrievalResult
+from .graph_retriever import GraphSchemaRetriever
+from .schema_graph import SchemaGraph
 from .utils import column_names, normalize_text, table_name
 
 
@@ -28,6 +31,8 @@ class SchemaRetriever:
         self.metadata = metadata
         self.postgres = postgres
         self.table_selector = TableSelector(settings)
+        self.falkor_graph = FalkorGraphConnector(settings)
+        self.graph_retriever = GraphSchemaRetriever()
 
     async def retrieve(
         self,
@@ -66,6 +71,19 @@ class SchemaRetriever:
             )
             metadata_source = "clickhouse_fallback"
 
+        graph_result = await self._retrieve_from_falkordb(
+            question,
+            datasource=datasource,
+            metadata_source=metadata_source,
+            candidates=candidates,
+            request_plan=request_plan,
+            min_tables=min_tables,
+            max_tables=max_tables,
+            warnings=warnings,
+        )
+        if graph_result is not None:
+            return graph_result
+
         ranked_tables: list[dict[str, Any]] = []
         selected_tables: list[dict[str, Any]] = []
         table_selection: dict[str, Any] | None = None
@@ -96,9 +114,90 @@ class SchemaRetriever:
             graph_edges=graph_edges,
             table_selection=table_selection,
             retrieval={
-                "strategy": "datahub_keyword_embedding_graph_expansion",
+                "strategy": "metadata_table_selector_fallback",
                 "candidateCount": len(candidates),
                 "selectedCount": len(selected_tables),
+                "requestPlan": request_plan,
+            },
+            warnings=warnings,
+        )
+
+    async def _retrieve_from_falkordb(
+        self,
+        question: str,
+        *,
+        datasource: str,
+        metadata_source: str,
+        candidates: list[dict[str, Any]],
+        request_plan: dict[str, Any],
+        min_tables: int,
+        max_tables: int,
+        warnings: list[str],
+    ) -> SchemaRetrievalResult | None:
+        if not candidates:
+            return None
+        try:
+            sync = await self.falkor_graph.sync_schema(
+                candidates,
+                datasource=datasource,
+            )
+            if sync.get("status") not in {"success", "cached"}:
+                warnings.append(
+                    "FalkorDB graph sync unavailable: "
+                    f"{sync.get('reason') or sync.get('status')}"
+                )
+                return None
+            graph_ranked = await self.falkor_graph.retrieve_tables(
+                question,
+                datasource=datasource,
+                limit=max(max_tables * 3, min_tables),
+            )
+        except Exception as exc:
+            warnings.append(f"FalkorDB graph retrieval failed: {str(exc)[:180]}")
+            return None
+
+        if not graph_ranked:
+            warnings.append("FalkorDB graph returned no table candidates; using metadata fallback.")
+            return None
+
+        initial_tables = graph_ranked[: max(min_tables, min(max_tables, len(graph_ranked)))]
+        schema_graph = SchemaGraph()
+        schema_graph.build_from_metadata(graph_ranked)
+        graph = self.graph_retriever.enhance(
+            question,
+            initial_tables=initial_tables,
+            ranked_tables=graph_ranked,
+            candidates=graph_ranked,
+            schema_graph=schema_graph,
+            max_tables=max_tables,
+        )
+        selected_tables = graph.tables or initial_tables
+        ranked_tables = graph.ranked_tables or graph_ranked
+        return SchemaRetrievalResult(
+            datasource=datasource,
+            metadata_source=f"{metadata_source}+falkordb",
+            database_description=_database_description(datasource, selected_tables),
+            tables=selected_tables,
+            ranked_tables=ranked_tables,
+            graph_edges=graph.graph_edges,
+            join_paths=graph.join_paths,
+            table_selection={
+                "strategy": "falkordb_graph_rank",
+                "primaryTable": table_name(selected_tables[0]) if selected_tables else None,
+                "selectedTables": [table_name(table) for table in selected_tables],
+                "rankedTables": [table_name(table) for table in ranked_tables],
+                "confidence": float(selected_tables[0].get("retrievalConfidence") or 0)
+                if selected_tables
+                else 0.0,
+            },
+            retrieval={
+                "strategy": "falkordb_queryweaver_schema_graph",
+                "candidateCount": len(candidates),
+                "graphCandidateCount": len(graph_ranked),
+                "selectedCount": len(selected_tables),
+                "bridgeTables": graph.bridge_tables,
+                "joinPathCount": len(graph.join_paths),
+                "graphEdgeCount": len(graph.graph_edges),
                 "requestPlan": request_plan,
             },
             warnings=warnings,

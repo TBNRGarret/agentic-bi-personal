@@ -35,7 +35,7 @@ class ResponseFormatter:
             None,
             planned_visualization,
         )
-        fallback_answer = _fallback_answer(rows, table_names)
+        fallback_answer = _fallback_answer(question, rows, table_names)
         streamed_chunks: list[str] = []
 
         def capture_delta(text: str) -> None:
@@ -85,8 +85,111 @@ class ResponseFormatter:
         }
 
 
-def _fallback_answer(rows: list[dict[str, Any]], table_names: list[str]) -> str:
+def _fallback_answer(question: str, rows: list[dict[str, Any]], table_names: list[str]) -> str:
     source = ", ".join(table_names) if table_names else "selected tables"
-    if rows:
-        return f"Returned {len(rows)} row(s) from {source}."
-    return f"No rows matched the current request from {source}."
+    if not rows:
+        return f"Khong co dong du lieu nao khop voi yeu cau hien tai tu {source}."
+
+    ranking = _rank_rows_for_question(question, rows)
+    if ranking:
+        label_key, metric_key, ranked_rows = ranking
+        top = ranked_rows[0]
+        top_label = _display_value(top.get(label_key))
+        top_value = _display_number(top.get(metric_key))
+        metric_label = metric_key.replace("_", " ")
+        answer = (
+            f"Ket qua cao nhat la **{top_label}** voi **{metric_label} = {top_value}** "
+            f"tren {len(rows)} dong ket qua."
+        )
+        if len(ranked_rows) > 1:
+            runners = ", ".join(
+                f"{_display_value(row.get(label_key))} ({_display_number(row.get(metric_key))})"
+                for row in ranked_rows[1:4]
+            )
+            answer += f" Cac muc tiep theo: {runners}."
+        return answer
+
+    return f"Da tra ve {len(rows)} dong ket qua tu {source}."
+
+
+def _rank_rows_for_question(
+    question: str,
+    rows: list[dict[str, Any]],
+) -> tuple[str, str, list[dict[str, Any]]] | None:
+    if not rows:
+        return None
+    columns = list(rows[0].keys())
+    numeric_columns = [column for column in columns if any(_to_number(row.get(column)) is not None for row in rows)]
+    if not numeric_columns:
+        return None
+
+    label_columns = [column for column in columns if column not in numeric_columns]
+    if not label_columns:
+        return None
+
+    question_l = question.lower()
+    metric_key = _best_metric_column(question_l, numeric_columns)
+    label_key = _best_label_column(label_columns)
+    reverse = not any(term in question_l for term in ("lowest", "least", "min", "minimum", "thap nhat", "it nhat", "nho nhat"))
+    ranked_rows = sorted(
+        rows,
+        key=lambda row: _to_number(row.get(metric_key)) if _to_number(row.get(metric_key)) is not None else float("-inf"),
+        reverse=reverse,
+    )
+    return label_key, metric_key, ranked_rows
+
+
+def _best_metric_column(question: str, numeric_columns: list[str]) -> str:
+    preferences = [
+        (("cost", "usd", "chi phi", "spend"), ("cost", "usd", "amount")),
+        (("token", "tokens"), ("token",)),
+        (("request", "count", "calls", "so luong"), ("request", "count", "call")),
+        (("latency", "duration", "delay"), ("latency", "duration", "ms")),
+        (("error", "fail", "loi"), ("error", "fail")),
+    ]
+    lowered = {column: column.lower() for column in numeric_columns}
+    for question_terms, column_terms in preferences:
+        if any(term in question for term in question_terms):
+            for column, lower in lowered.items():
+                if any(term in lower for term in column_terms):
+                    return column
+    for preferred in ("total_cost_usd", "cost_usd", "total_tokens", "request_count"):
+        for column, lower in lowered.items():
+            if preferred == lower:
+                return column
+    return numeric_columns[0]
+
+
+def _best_label_column(label_columns: list[str]) -> str:
+    lowered = {column: column.lower() for column in label_columns}
+    for preferred in ("source_app", "app", "application", "service", "provider", "model", "name"):
+        for column, lower in lowered.items():
+            if preferred == lower or lower.endswith(f"_{preferred}"):
+                return column
+    return label_columns[0]
+
+
+def _to_number(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number else None
+
+
+def _display_number(value: Any) -> str:
+    number = _to_number(value)
+    if number is None:
+        return _display_value(value)
+    if abs(number) >= 1000:
+        return f"{number:,.2f}".rstrip("0").rstrip(".")
+    if abs(number) >= 1:
+        return f"{number:.4f}".rstrip("0").rstrip(".")
+    return f"{number:.6f}".rstrip("0").rstrip(".")
+
+
+def _display_value(value: Any) -> str:
+    text = str(value if value is not None else "unknown").strip()
+    return text or "unknown"

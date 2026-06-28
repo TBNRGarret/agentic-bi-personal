@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from time import perf_counter
 from typing import Any, Callable
 
@@ -13,6 +14,7 @@ from ...services.llm import LlmService
 from ..monitoring_agent import _intent, _prepare_sql_candidate
 from ..request_orchestrator import build_request_plan
 from .decomposer_agent import DecomposerAgent
+from .execution_graph import build_model2_execution_graph
 from .hybrid_selector import HybridSelector
 from .refiner_agent import RefinerAgent
 from .relevancy_agent import RelevancyAgent
@@ -147,6 +149,7 @@ class HybridText2SQLOrchestrator:
             conversation=conversation or [],
             memory=memory or {},
             request_plan=request_plan,
+            join_paths=retrieval.join_paths,
         )
         if plan.status != "success" or not plan.sql:
             return self._error_result(
@@ -282,6 +285,20 @@ class HybridText2SQLOrchestrator:
             synthesis_timeout_seconds=self.settings.agent_synthesis_timeout_seconds,
         )
         usage = _merge_usage(plan.raw_plan, formatted.get("llmSynthesis") or {})
+        used_table_names = _referenced_table_names(sql, selector.selected_table_names) or selector.selected_table_names[:1]
+        query_plan_graph = build_model2_execution_graph(
+            question=question,
+            datasource=retrieval.datasource,
+            retrieval=retrieval,
+            selector=selector,
+            plan=plan,
+            sql=sql,
+            used_tables=used_table_names,
+            attempts=attempts,
+            row_count=len(rows),
+            status="success",
+        ).to_dict()
+        query_plan_persistence = await self._persist_query_plan(query_plan_graph, retrieval.warnings)
         return {
             "agent": "model2_hybrid_text2sql",
             "model": "model2",
@@ -295,7 +312,8 @@ class HybridText2SQLOrchestrator:
             "rowCount": len(rows),
             "chartSpec": formatted["chartSpec"],
             "attempts": attempts,
-            "selectedTables": selector.selected_table_names,
+            "usedTables": used_table_names,
+            "selectedTables": used_table_names,
             "searchedTables": selector.selected_table_names,
             "executionTimeMs": elapsed,
             "metadataContext": retrieval.to_dict(),
@@ -309,11 +327,29 @@ class HybridText2SQLOrchestrator:
                 target=target,
                 status="success",
                 datasource=retrieval.datasource,
-                selected_tables=selector.selected_table_names,
+                selected_tables=used_table_names,
                 execution_time_ms=elapsed,
             ),
+            "queryPlanGraph": query_plan_graph,
+            "queryPlanPersistence": query_plan_persistence,
             "warnings": retrieval.warnings,
         }
+
+    async def _persist_query_plan(
+        self,
+        graph: dict[str, Any],
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        try:
+            result = await self.schema_retriever.falkor_graph.persist_query_plan(graph)
+        except Exception as exc:
+            result = {"status": "failed", "error": str(exc)[:180]}
+        if result.get("status") != "success":
+            warnings.append(
+                "FalkorDB query plan persistence unavailable: "
+                f"{result.get('reason') or result.get('error') or result.get('status')}"
+            )
+        return result
 
     async def _request_plan(
         self,
@@ -518,6 +554,8 @@ def _merge_usage(*parts: dict[str, Any]) -> dict[str, Any]:
         model = part.get("model") or usage.get("model") or model
         provider = part.get("provider") or usage.get("provider") or provider
     total = prompt + completion
+    if total <= 0 and cost <= 0:
+        return {}
     return {
         "promptTokens": prompt,
         "completionTokens": completion,
@@ -529,3 +567,14 @@ def _merge_usage(*parts: dict[str, Any]) -> dict[str, Any]:
         "model": model,
         "provider": provider,
     }
+
+
+def _referenced_table_names(sql: str, known_tables: list[str]) -> list[str]:
+    known_lookup = {table.lower(): table for table in known_tables}
+    found: list[str] = []
+    for raw_name in re.findall(r"\b(?:FROM|JOIN)\s+([`\"a-zA-Z_][`\"\w.]*)", sql, re.IGNORECASE):
+        name = raw_name.strip('`"')
+        canonical = known_lookup.get(name.lower()) or name
+        if canonical not in found:
+            found.append(canonical)
+    return found

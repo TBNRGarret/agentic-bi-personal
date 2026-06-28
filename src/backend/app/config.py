@@ -64,6 +64,12 @@ class Settings(BaseModel):
     datahub_gms_url: str = os.getenv("DATAHUB_GMS_URL", "http://datahub-gms:8080")
     datahub_token: str = os.getenv("DATAHUB_TOKEN", "")
     datahub_timeout_seconds: float = float(os.getenv("DATAHUB_TIMEOUT_SECONDS", "15"))
+    falkordb_host: str = os.getenv("FALKORDB_HOST", "falkordb")
+    falkordb_port: int = int(os.getenv("FALKORDB_PORT", "6379"))
+    falkordb_graph_name: str = os.getenv("FALKORDB_GRAPH_NAME", "agentic_bi_schema")
+    falkordb_enabled: bool = os.getenv("FALKORDB_ENABLED", "true").lower() == "true"
+    falkordb_timeout_seconds: float = float(os.getenv("FALKORDB_TIMEOUT_SECONDS", "5"))
+    falkordb_sync_ttl_seconds: float = float(os.getenv("FALKORDB_SYNC_TTL_SECONDS", "60"))
     metabase_url: str = os.getenv("METABASE_URL", "http://metabase:3000")
     metabase_public_url: str = os.getenv("METABASE_PUBLIC_URL", "http://localhost:3000")
     metabase_admin_email: str = os.getenv("METABASE_ADMIN_EMAIL", "")

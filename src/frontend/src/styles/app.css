@@ -2849,3 +2849,80 @@ body {
   animation: fadeIn 0.25s ease-out;
 }
 
+
+
+/* Graph Database */
+.graph-database-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: calc(100vh - 150px);
+}
+
+.graph-db-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.graph-db-subtitle {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.graph-db-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 10px;
+}
+
+.graph-db-connection-hint {
+  align-items: center;
+  background: rgba(24, 24, 27, 0.68);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+}
+
+.graph-db-connection-hint span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-right: 4px;
+  text-transform: uppercase;
+}
+
+.graph-db-connection-hint code {
+  background: rgba(9, 9, 11, 0.58);
+  border: 1px solid rgba(63, 63, 70, 0.52);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.graph-db-frame {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  flex: 1;
+  min-height: 640px;
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .graph-db-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .graph-db-frame {
+    min-height: 560px;
+  }
+}

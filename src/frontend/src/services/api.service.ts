@@ -107,7 +107,6 @@ export const api = {
     ),
   observeChat: (
     question: string,
-    windowHours = 24,
     conversation: Record<string, unknown>[] = [],
     model = "model1",
   ) =>
@@ -117,13 +116,11 @@ export const api = {
         question,
         target: "auto",
         model,
-        windowHours,
         conversation,
       }),
     }),
   observeChatStream: (
     question: string,
-    windowHours = 24,
     conversation: Record<string, unknown>[] = [],
     sessionId?: string,
     model = "model1",
@@ -135,7 +132,6 @@ export const api = {
         question,
         target: "auto",
         model,
-        windowHours,
         conversation,
         sessionId,
       }),

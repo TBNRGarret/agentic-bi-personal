@@ -50,6 +50,7 @@ interface ObserveChatResponse {
   sessionId?: string;
   suggestions?: string[];
   selectedTables?: string[];
+  usedTables?: string[];
   searchedTables?: string[];
   routeNote?: string;
   tableSelection?: {
@@ -192,14 +193,18 @@ function chartMatchesRows(
   rows: Record<string, unknown>[],
   question: string,
 ): boolean {
+  const reason = String(chartSpec.reason || "").toLowerCase();
+  if (reason.includes("lookup-shaped")) return false;
   if (chartSpec.type === "table") return rows.length > 0;
   if (rows.length < 2) return false;
   const columns = new Set(rows.flatMap((row) => Object.keys(row)));
   const yColumns = Array.isArray(chartSpec.y) ? chartSpec.y : chartSpec.y ? [chartSpec.y] : [];
   const seriesColumns = Array.isArray(chartSpec.series) ? chartSpec.series : chartSpec.series ? [chartSpec.series] : [];
-  if (chartSpec.x && !columns.has(chartSpec.x)) return false;
+  if (!chartSpec.x || !columns.has(chartSpec.x)) return false;
   if (seriesColumns.some((column) => !columns.has(column))) return false;
   if (yColumns.length === 0 || !yColumns.some((column) => columns.has(column))) return false;
+  const distinctXValues = new Set(rows.map((row) => String(row[chartSpec.x as string] ?? "")));
+  if (distinctXValues.size < 2) return false;
   if (asksForLatency(question) && !yColumns.some(isLatencyColumn)) return false;
   return true;
 }
@@ -255,6 +260,19 @@ function rowsForChartSource(metrics: unknown, source?: string): Record<string, u
   return arrayRows((metrics as Record<string, unknown>)[source]) || [];
 }
 
+function tablesUsedBySql(data?: ObserveChatResponse): string[] {
+  const used = Array.isArray(data?.usedTables) ? data.usedTables.filter(Boolean) : [];
+  if (used.length) return used;
+  const selected = Array.isArray(data?.selectedTables) ? data.selectedTables.filter(Boolean) : [];
+  return selected;
+}
+
+function graphContextTables(data?: ObserveChatResponse): string[] {
+  const context = Array.isArray(data?.searchedTables) ? data.searchedTables.filter(Boolean) : [];
+  const used = new Set(tablesUsedBySql(data));
+  return context.filter((table) => !used.has(table));
+}
+
 function fallbackAnswer(data?: ObserveChatResponse): string {
   const rowCount = typeof data?.rowCount === "number" ? data.rowCount : getRows(data).length;
   const tables = Array.isArray(data?.selectedTables) && data.selectedTables.length
@@ -270,12 +288,14 @@ function numberValue(value: unknown): number {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
-function usageSummary(data?: ObserveChatResponse): { totalTokens: number; estimatedCostUsd: number } {
-  const usage = data?.llmUsage || data?.usage || data?.llmSynthesis?.usage || {};
-  const promptTokens = numberValue(usage.promptTokens ?? usage.prompt_tokens);
-  const completionTokens = numberValue(usage.completionTokens ?? usage.completion_tokens);
-  const totalTokens = numberValue(usage.totalTokens ?? usage.total_tokens) || promptTokens + completionTokens;
-  const estimatedCostUsd = numberValue(usage.estimatedCostUsd ?? usage.totalCostUsd ?? data?.llmSynthesis?.totalCostUsd);
+function usageSummary(data?: ObserveChatResponse): { totalTokens: number; estimatedCostUsd: number } | null {
+  const rawUsage = data?.llmUsage || data?.usage || data?.llmSynthesis?.usage;
+  if (!rawUsage) return null;
+  const promptTokens = numberValue(rawUsage.promptTokens ?? rawUsage.prompt_tokens);
+  const completionTokens = numberValue(rawUsage.completionTokens ?? rawUsage.completion_tokens);
+  const totalTokens = numberValue(rawUsage.totalTokens ?? rawUsage.total_tokens) || promptTokens + completionTokens;
+  const estimatedCostUsd = numberValue(rawUsage.estimatedCostUsd ?? rawUsage.totalCostUsd ?? data?.llmSynthesis?.totalCostUsd);
+  if (totalTokens <= 0 && estimatedCostUsd <= 0) return null;
   return { totalTokens, estimatedCostUsd };
 }
 
@@ -399,6 +419,7 @@ async function readObserveStream(response: Response, onEvent: (event: StreamEven
 
 function TokenUsageBadge({ data }: { data: ObserveChatResponse }) {
   const usage = usageSummary(data);
+  if (!usage) return null;
   return (
     <div className="observe-cost-badge">
       {usage.totalTokens.toLocaleString()} tokens
@@ -413,7 +434,6 @@ export function ObserveChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [progressMessage, setProgressMessage] = useState("Dang phan tich telemetry...");
   const [loading, setLoading] = useState(false);
-  const [windowHours, setWindowHours] = useState(24);
   const [agentModel, setAgentModel] = useState<AgentModel>("model1");
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [sessionId, setSessionId] = useState("");
@@ -470,7 +490,6 @@ export function ObserveChatPanel() {
     try {
       const response = await api.observeChatStream(
         question,
-        windowHours,
         conversation,
         activeSessionId,
         agentModel,
@@ -577,16 +596,6 @@ export function ObserveChatPanel() {
               </select>
             </label>
             <label className="observe-window-control">
-              <span>Window</span>
-              <select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
-                <option value={1}>1h</option>
-                <option value={6}>6h</option>
-                <option value={24}>24h</option>
-                <option value={72}>72h</option>
-                <option value={168}>7d</option>
-              </select>
-            </label>
-            <label className="observe-window-control">
               <span>Session</span>
               <select value={sessionId} onChange={(event) => openSession(event.target.value)}>
                 <option value="">New conversation</option>
@@ -656,18 +665,23 @@ export function ObserveChatPanel() {
                 {message.role === "assistant" && message.data && (
                   <TokenUsageBadge data={message.data} />
                 )}
-                {message.role === "assistant" && Array.isArray(message.data?.selectedTables) && message.data.selectedTables.length > 0 && (
+                {message.role === "assistant" && tablesUsedBySql(message.data).length > 0 && (
                   <details className="observe-data-sources">
                     <summary>
-                      Data used: {message.data.selectedTables.join(", ")}
+                      Data used: {tablesUsedBySql(message.data).join(", ")}
                     </summary>
                     <div className="observe-data-source-details">
-                      {(message.data.tableSelection?.requiredCapabilities || []).length > 0 && (
+                      {graphContextTables(message.data).length > 0 && (
                         <div>
-                          Required: {message.data.tableSelection?.requiredCapabilities?.join(", ")}
+                          Graph context: {graphContextTables(message.data).join(", ")}
                         </div>
                       )}
-                      {(message.data.tableSelection?.candidates || []).map((candidate) => (
+                      {(message.data?.tableSelection?.requiredCapabilities || []).length > 0 && (
+                        <div>
+                          Required: {message.data?.tableSelection?.requiredCapabilities?.join(", ")}
+                        </div>
+                      )}
+                      {(message.data?.tableSelection?.candidates || []).map((candidate) => (
                         <div key={candidate.tableName}>
                           <strong>{candidate.tableName}</strong>
                           {" "}

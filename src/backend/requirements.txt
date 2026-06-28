@@ -12,3 +12,5 @@ opentelemetry-api>=1.26,<2.0
 opentelemetry-sdk>=1.26,<2.0
 opentelemetry-exporter-otlp>=1.26,<2.0
 opentelemetry-instrumentation-fastapi>=0.47b0,<1.0
+
+redis>=5.0,<6.0

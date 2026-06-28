@@ -31,7 +31,6 @@ class ChatRequest(BaseModel):
     model: Literal["model1", "model2"] = "model1"
     limit: int = Field(default=100, ge=1, le=500)
     conversation: list[dict[str, Any]] = Field(default_factory=list)
-    windowHours: int | None = None
     includeSynthesis: bool = True
     sessionId: str | None = Field(default=None, max_length=64)
 
@@ -72,7 +71,7 @@ def build_router(
             )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        request_memory = _memory_with_window(memory, payload.windowHours)
+        request_memory = memory
         active_orchestrator = model2_orchestrator if payload.model == "model2" else orchestrator
         result = await active_orchestrator.answer(
             payload.question,
@@ -127,7 +126,7 @@ def build_router(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-        request_memory = _memory_with_window(memory, payload.windowHours)
+        request_memory = memory
         return StreamingResponse(
             _stream_chat_events(
                 model2_orchestrator if payload.model == "model2" else orchestrator,
@@ -608,14 +607,6 @@ def _merge_tables(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if name:
                 merged[name] = table
     return sorted(merged.values(), key=lambda table: str(table.get("tableName") or ""))
-
-
-def _memory_with_window(
-    memory: dict[str, Any], window_hours: int | None
-) -> dict[str, Any]:
-    if not window_hours:
-        return memory
-    return {**memory, "timeframe": f"{window_hours}h"}
 
 
 def _identity(principal: Principal) -> dict[str, str]:

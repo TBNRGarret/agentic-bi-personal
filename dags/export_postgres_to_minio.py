@@ -7,7 +7,7 @@ Airflow DAG that runs every 3 hours.
 Flow:
   1. export_tables  — Connect to Postgres, export each table as JSONL
   2. upload_to_minio — Upload JSONL files + manifest to MinIO
-  3. trigger_pipeline — Trigger agentic_bi_pipeline to process the new data
+  3. trigger_pipeline — Trigger sync_external_staging_to_dwh to process the new data
 """
 
 from __future__ import annotations
@@ -185,7 +185,7 @@ def export_postgres_to_minio():
         return summary
 
     trigger_pipeline = TriggerDagRunOperator(
-        task_id="trigger_agentic_bi_pipeline",
+        task_id="trigger_sync_external_staging_to_dwh",
         trigger_dag_id="sync_external_staging_to_dwh",
         wait_for_completion=False,
         reset_dag_run=True,

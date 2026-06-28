@@ -17,11 +17,13 @@ class TestParseObjectPath:
         assert isinstance(batch_id, UUID)
         assert str(batch_id) == "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
-    def test_parse_object_path_rejects_old_format(self):
-        """Old flat path with 4 parts should raise ValueError."""
+    def test_parse_object_path_accepts_legacy_hour_format(self):
+        """Legacy hour path should still parse existing MinIO batches."""
         path = "raw/hoang_ai_chat/user_interactions/hour=2026-06-25-14/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jsonl"
-        with pytest.raises(ValueError):
-            parse_object_path(path)
+        app, table, batch_id = parse_object_path(path)
+        assert app == "hoang_ai_chat"
+        assert table == "user_interactions"
+        assert str(batch_id) == "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
     def test_parse_object_path_other_source_app(self):
         """Test with another source app."""
@@ -43,11 +45,13 @@ class TestParseObjectPath:
         with pytest.raises(ValueError):
             parse_object_path(path)
 
-    def test_parse_object_path_wrong_part_count(self):
-        """Path with wrong number of parts should raise ValueError."""
+    def test_parse_object_path_accepts_flat_format(self):
+        """Flat dev-style path should parse correctly."""
         path = "raw/hoang_ai_chat/user_interactions/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jsonl"
-        with pytest.raises(ValueError):
-            parse_object_path(path)
+        app, table, batch_id = parse_object_path(path)
+        assert app == "hoang_ai_chat"
+        assert table == "user_interactions"
+        assert str(batch_id) == "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
 
 class TestParseManifestPath:
@@ -59,11 +63,12 @@ class TestParseManifestPath:
         assert isinstance(batch_id, UUID)
         assert str(batch_id) == "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
-    def test_parse_manifest_path_rejects_old_format(self):
-        """Old flat manifest path with 4 parts should raise ValueError."""
+    def test_parse_manifest_path_accepts_legacy_hour_format(self):
+        """Legacy hour manifest path should still parse existing MinIO batches."""
         path = "raw/hoang_ai_chat/_manifests/hour=2026-06-25-14/a1b2c3d4-e5f6-7890-abcd-ef1234567890.json"
-        with pytest.raises(ValueError):
-            parse_manifest_path(path)
+        app, batch_id = parse_manifest_path(path)
+        assert app == "hoang_ai_chat"
+        assert str(batch_id) == "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
     def test_parse_manifest_path_invalid_prefix(self):
         """Path not starting with 'raw/' should raise ValueError."""
@@ -83,8 +88,9 @@ class TestParseManifestPath:
         with pytest.raises(ValueError):
             parse_manifest_path(path)
 
-    def test_parse_manifest_path_wrong_part_count(self):
-        """Path with wrong number of parts should raise ValueError."""
-        path = "raw/hoang_ai_chat/_manifests/hour=2026-06-25-14/a1b2c3d4-e5f6-7890-abcd-ef1234567890.json"
-        with pytest.raises(ValueError):
-            parse_manifest_path(path)
+    def test_parse_manifest_path_accepts_flat_format(self):
+        """Flat dev-style manifest path should parse correctly."""
+        path = "raw/hoang_ai_chat/_manifests/a1b2c3d4-e5f6-7890-abcd-ef1234567890.json"
+        app, batch_id = parse_manifest_path(path)
+        assert app == "hoang_ai_chat"
+        assert str(batch_id) == "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
