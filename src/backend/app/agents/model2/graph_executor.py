@@ -49,6 +49,22 @@ class DeterministicGraphExecutor:
     or tool name. This keeps future multi-tool execution deterministic.
     """
 
+    """
+    Overview
+    1. Receives ExecutionGraph (DAG of steps) + handler map {step_type: async_handler}
+    2. Topological sort: determine execution order
+    3. Execute step by step
+        a. Check dependencies -> skip if failed
+        b. Lookup handler by step.type or step.tool
+        c. Execute handler(step, context)
+        d. Store result in StepExecutionState
+    4. After all steps -> compose results via compose_step_results()
+    5. Return GraphExecutionResult {status, order, steps, composed}
+
+    Safety: only allowlisted handlers can execute. No LLM tool-calling.
+    Designed for future multi-tool execution graphs.
+    """
+
     async def run(
         self,
         graph: ExecutionGraph,

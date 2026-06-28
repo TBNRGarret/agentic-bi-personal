@@ -1,3 +1,14 @@
+"""Shared utility functions for Model 2 pipeline.
+
+- normalize_text(): Vietnamese-aware text normalization (NFKD, accent removal,
+  Vietnamese-to-English term mapping)
+- table_name(): safe table name extraction from metadata dict
+- column_names(): safe column name list extraction
+- compact_table(): build a pruned table dict with selected columns only
+
+All functions use defensive access patterns (dict.get()) for robustness.
+"""
+
 from __future__ import annotations
 
 import re

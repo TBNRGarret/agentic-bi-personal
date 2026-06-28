@@ -20,6 +20,28 @@ class GraphRetrievalResult:
 class GraphSchemaRetriever:
     """Graph-aware retrieval over the existing governed metadata catalog."""
 
+    """
+    Overview
+    1. Receives initial_tables (from DataHub/TableSelector) + SchemaGraph
+    2. Graph expansion
+        a. Find bridge tables: tables that connect initial tables via shared columns
+        b. SchemaGraph.expand_with_bridges(initial_names) returns expanded set
+        c. Bridge tables fill gaps for multi-hop joins
+    3. Graph re-ranking
+        a. Score expanded tables by graph centrality + question relevance
+        b. Bounded by max_tables parameter
+    4. Subgraph extraction
+        a. Extract subgraph containing initial + bridge tables
+        b. Find join paths (BFS, max 2 hops)
+    5. Return GraphRetrievalResult with:
+        a. expanded tables (bounded list)
+        b. graph edges from subgraph
+        c. join paths between initial tables
+        d. bridge table names
+
+    Phase 2 enhancement: uses SchemaGraph for graph-aware table expansion.
+    """
+
     def enhance(
         self,
         question: str,

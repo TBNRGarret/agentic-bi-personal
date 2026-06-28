@@ -1,3 +1,14 @@
+"""Model 2 pipeline workflow graph for frontend AgentFlowGraph rendering.
+
+Builds the node/edge graph shown in the UI after each Model 2 query.
+Nodes represent pipeline stages (relevancy, selector, decomposer, etc.)
+with kind, label, status, and a short description.
+Edges represent data flow between stages.
+
+Supports error highlighting: if a stage fails, its node and downstream
+edges are marked with error status.
+"""
+
 from __future__ import annotations
 
 from typing import Any

@@ -6,6 +6,27 @@ from dataclasses import dataclass
 from typing import Any
 
 
+"""Database error classification and fuzzy name matching for SQL repair.
+
+ErrorClassifier analyzes database error messages and classifies them into
+6 categories: unknown_column, missing_table, syntax_error,
+aggregation_error, type_mismatch, general_database_error.
+
+Uses regex patterns for detection + difflib.get_close_matches() for
+fuzzy schema name matching (column/table name suggestions).
+
+ErrorClassification dataclass holds the category, raw message,
+suggested fix string, and confidence score.
+"""
+
+from __future__ import annotations
+
+import difflib
+import re
+from dataclasses import dataclass
+from typing import Any
+
+
 @dataclass(frozen=True)
 class ErrorClassification:
     category: str

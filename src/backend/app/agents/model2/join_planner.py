@@ -80,6 +80,32 @@ class JoinPlanningResult:
 class JoinPlanner:
     """Build an explicit multi-table join plan before SQL decomposition."""
 
+    """
+    Overview
+    1. Receives SchemaRetrievalResult + SelectorResult + question
+    2. Entity detection
+        a. BusinessEntityDetector.detect() extracts entities from question
+        b. Matches against glossary + table/column names
+    3. Candidate join paths
+        a. From SchemaRetrievalResult.join_paths (graph edges)
+        b. Filter by selected table names
+        c. Direct edges between selected tables
+    4. Score each path
+        a. Base weight from edge type (FK=0.92, SHARED_COLUMN=0.76, LINEAGE=0.58)
+        b. Entity coverage bonus (+0.25/entity)
+        c. Selected table match bonus (+0.25/table)
+        d. Join condition bonus (+0.2)
+        e. Confirmation penalty (-0.4)
+        f. Long path penalty (-0.1/table >3)
+    5. Select top N paths, build artifacts
+        a. hint_block: comment block for SQL generator prompt
+        b. decomposition_hints: CTE vs single-query strategy
+        c. validation: required join conditions, no-cross-join rules
+    6. Return JoinPlanningResult {status, entities, paths, hints, validation}
+
+    Runs between HybridSelector and DecomposerAgent.
+    """
+
     def __init__(self, entity_detector: BusinessEntityDetector | None = None) -> None:
         self.entity_detector = entity_detector or BusinessEntityDetector()
 

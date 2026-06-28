@@ -12,6 +12,25 @@ EventSink = Callable[[dict[str, Any]], None]
 class ResponseFormatter:
     """QueryWeaver-style final formatter adapted to Agentic BI chart output."""
 
+    """
+    Overview
+    1. Receives executed SQL results (rows, sql, table_names)
+    2. Infer chart spec from data shape + planned_visualization
+        a. Use infer_chart_spec() with row data and intent
+        b. Fallback to planned_visualization from decomposer
+    3. LLM synthesis (optional, controlled by include_synthesis flag)
+        a. Call llm.synthesize() with question, sql, rows, chart_spec
+        b. Delta sink for streaming tokens to frontend
+        c. Timeout and error handling -> deterministic fallback answer
+    4. Build final answer
+        a. If synthesis succeeds -> use LLM answer
+        b. If synthesis fails/times out -> use streamed chunks or fallback
+        c. Fallback: deterministic summary (N rows, M columns, X table(s))
+    5. Return {answer, chartSpec, synthesis metadata}
+
+    Reuses existing infer_chart_spec() and LlmService.synthesize().
+    """
+
     async def format(
         self,
         *,

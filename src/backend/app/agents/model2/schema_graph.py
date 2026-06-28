@@ -67,6 +67,22 @@ class JoinPath:
 class SchemaGraph:
     """In-memory schema relationship graph built from governed metadata."""
 
+    """
+    Overview
+    1. Build from metadata tables + lineage edges
+    2. Graph structure
+        a. Nodes: TableNode (name, columns, types, PK, FK, schema, description)
+        b. Edges: FK (0.92), SHARED_COLUMN (0.76), LINEAGE (0.58), RELATIONSHIP (0.55)
+    3. Key operations
+        a. expand_with_bridges(): add bridge tables between selected tables
+        b. subgraph(): extract subgraph for a set of table names
+        c. find_join_paths(): shortest paths between tables (BFS, max_hops)
+        d. table(name): direct node lookup
+        e. to_edge_list(): serialize edges for JSON response
+
+    Used by GraphSchemaRetriever for graph-aware table expansion.
+    """
+
     def __init__(self) -> None:
         self._nodes: dict[str, TableNode] = {}
         self._edges: list[SchemaEdge] = []

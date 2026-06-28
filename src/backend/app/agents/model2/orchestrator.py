@@ -30,6 +30,29 @@ EventSink = Callable[[dict[str, Any]], None]
 class HybridText2SQLOrchestrator:
     """Model 2: MAC-SQL selector/decomposer/refiner over QueryWeaver-style retrieval."""
 
+    """
+    Overview
+    1. Natural language question from user (via query.py router dispatch)
+    2. Pipeline stages
+        a. Relevancy gate: off-topic/ambiguous detection -> short-circuit
+        b. Request plan: build semantic slots via LLM + deterministic rules
+        c. Schema retrieval: DataHub -> FalkorDB -> TableSelector -> ClickHouse/PG
+        d. Hybrid selector: MAC-SQL table + column pruning
+        e. Join planner: entity detection + join path scoring + hint generation
+        f. Decomposer: complexity assessment -> simple (direct SQL) or decompose step-by-step
+        g. SQL safety + row security (reuse existing guards)
+        h. Executor: try candidates -> if all fail -> refiner loop
+        i. Refiner loop: ErrorClassifier -> deterministic repair -> LLM repair -> retry
+        j. Response formatter: chart spec + LLM synthesis + fallback answer
+    3. Output artifacts
+        a. workflowGraph: 13-stage pipeline visualization for frontend
+        b. executionGraph: persisted query plan for debugging
+        c. queryPlanGraph optionally persisted to FalkorDB
+    4. Stats: executionTimeMs, llmUsage, attempts with error classifications
+
+    Model 2 runs parallel to Model 1, selected by model="model2" in ChatRequest.
+    """
+
     def __init__(
         self,
         settings: Settings,

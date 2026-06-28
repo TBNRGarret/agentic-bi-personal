@@ -1,3 +1,12 @@
+"""Compose execution graph step results into a summary for debugging.
+
+After DeterministicGraphExecutor runs all steps, compose_step_results()
+aggregates successful/failed/skipped steps and extracts terminal step
+outputs for answer synthesis and debugging.
+
+Terminal steps are those with no dependents (leaf nodes in the DAG).
+"""
+
 from __future__ import annotations
 
 from typing import Any

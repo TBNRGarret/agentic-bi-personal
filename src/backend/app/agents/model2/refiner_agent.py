@@ -11,6 +11,26 @@ from .utils import table_name
 class RefinerAgent:
     """MAC-SQL Refiner + QueryWeaver Healer pattern with deterministic-first repair."""
 
+    """
+    Overview
+    1. Receives failed SQL + database error from orchestrator
+    2. ErrorClassifier.classify() -> categorize error into 6 types
+        a. unknown_column, missing_table, syntax_error
+        b. aggregation_error, type_mismatch, general_database_error
+    3. Build deterministic repair candidates (no LLM needed)
+        a. clean_sql: remove markdown wrappers
+        b. schema_replacement: fuzzy match bad column/table -> correct schema name
+        c. repair_group_by: auto-add missing non-aggregated columns
+        d. repair_syntax: balance quotes/parentheses
+        e. repair_type_mismatch: add dialect casts
+        f. constrain: add table qualification + limit
+    4. If confidence >= 0.8 -> return deterministic candidate immediately
+    5. If confidence < 0.8 -> call LLM smart_repair/correct_sql with error context
+    6. Merge deterministic + LLM candidates, deduplicate, return top 5
+
+    Deterministic-first: avoids LLM cost for common, predictable errors.
+    """
+
     def __init__(self, error_classifier: ErrorClassifier | None = None) -> None:
         self.error_classifier = error_classifier or ErrorClassifier()
 

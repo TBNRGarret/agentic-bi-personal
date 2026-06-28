@@ -8,6 +8,29 @@ from uuid import uuid4
 from .contracts import DecompositionPlan, SchemaRetrievalResult, SelectorResult
 
 
+"""Execution graph data model for Model 2 pipeline DAG.
+
+Defines the DAG structure (ExecutionStep, ExecutionGraph) and the builder
+function build_model2_execution_graph() that converts pipeline state into
+a persisted graph for debugging and observability.
+
+The execution graph captures:
+- Each pipeline stage as a step with type/tool/dependencies
+- Topological execution order
+- Status, inputs, outputs, and error per step
+- Full pipeline metadata (question, datasource, mode)
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
+from uuid import uuid4
+
+from .contracts import DecompositionPlan, SchemaRetrievalResult, SelectorResult
+
+
 @dataclass(frozen=True)
 class ExecutionStep:
     id: str

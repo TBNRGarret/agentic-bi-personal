@@ -6,6 +6,28 @@ from typing import Any
 from .utils import column_names, normalize_text, table_name
 
 
+"""Business entity detection for join planning.
+
+EntityDetector extracts business entities from natural language questions
+using a built-in glossary of known terms (publisher, revenue, cost, etc.)
+and fuzzy table/column name matching.
+
+BusinessEntity: detected entity with kind (dimension/metric/time_filter),
+canonical name, mapped tables/columns, and confidence.
+EntityDetectionResult: aggregated result with entities, glossary hits,
+table mentions, and column mentions.
+
+Used by JoinPlanner to score join paths by entity coverage.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from .utils import column_names, normalize_text, table_name
+
+
 @dataclass(frozen=True)
 class BusinessEntity:
     raw_value: str

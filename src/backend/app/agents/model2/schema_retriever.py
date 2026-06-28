@@ -20,6 +20,24 @@ from .utils import column_names, normalize_text, table_name
 class SchemaRetriever:
     """QueryWeaver-style schema retrieval over Agentic BI governed metadata."""
 
+    """
+    Overview
+    1. Natural language question + target datasource
+    2. Route datasource: dwh -> Postgres; clickhouse -> DataHub/ClickHouse
+    3. Metadata retrieval hierarchy
+        a. Try DataHub catalog search (relevant_tables) -> enrich with schema fields
+        b. Try FalkorDB graph query -> expand with lineage/bridge tables
+        c. Fallback to TableSelector keyword+embedding ranking
+        d. Fallback to ClickHouse/PG describe_tables
+    4. Memory graph construction
+        a. Build SchemaGraph from metadata + lineage edges
+        b. Graph expansion: FK, SHARED_COLUMN, LINEAGE edges
+        c. Find join paths between selected tables
+    5. Return SchemaRetrievalResult with tables, graph_edges, join_paths
+
+    Multiple retrieval strategies with fallback chain.
+    """
+
     def __init__(
         self,
         settings: Settings,

@@ -45,6 +45,24 @@ class HybridSelector:
        requested metrics/dimensions, and join keys.
     """
 
+    """
+    Overview
+    1. Natural language question + SchemaRetrievalResult from schema_retriever
+    2. Build QueryProfile
+        a. Extract terms, metrics, dimensions from question + request_plan slots
+        b. Infer join context from graph edges
+    3. For each candidate table:
+        a. Score columns by semantic role (metric, dimension, time, join_key, pk)
+        b. Compute table-level keep/drop decision
+        c. keep_all: small/highly relevant tables
+        d. drop_all: irrelevant tables
+        e. select_columns: large tables -> top N columns by role
+    4. Build compact schema prompt string for LLM
+    5. Fallback: if no tables survive, promote top-ranked table
+
+    MAC-SQL style pruning: table-level then column-level.
+    """
+
     def select(
         self,
         question: str,

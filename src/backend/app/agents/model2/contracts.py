@@ -1,3 +1,14 @@
+"""Shared data contracts for Model 2 pipeline stages.
+
+Defines the dataclass contracts exchanged between pipeline stages:
+- RelevancyDecision: relevancy gate output
+- SchemaRetrievalResult: schema retriever output (tables, graph edges, join paths)
+- SelectorResult: hybrid selector output (pruned tables, schema prompt)
+- DecompositionPlan: decomposer output (SQL, candidates, sub-questions)
+
+Every contract includes a to_dict() method for API serialization.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field

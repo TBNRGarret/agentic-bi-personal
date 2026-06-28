@@ -10,6 +10,19 @@ from .utils import normalize_text
 class RelevancyAgent:
     """QueryWeaver-style gate for BI answerability before SQL planning."""
 
+    """
+    Overview
+    1. Natural language question from user
+    2. Relevancy gate
+        a. Check request_plan for missing semantic slots -> needs_clarification
+        b. Check if question is smalltalk/greeting -> off_topic
+        c. Check for BI domain signals (cost, token, latency, model, etc.) -> on_topic
+        d. Default: continue with governed schema retrieval
+
+    Acts as the first guardrail in Model 2 pipeline.
+    Returns a RelevancyDecision that orchestrator uses to short-circuit or continue.
+    """
+
     def check(
         self,
         question: str,

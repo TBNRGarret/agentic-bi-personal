@@ -33,6 +33,23 @@ class ComplexityAssessment:
 class ComplexityAssessor:
     """Hybrid rule-based + LLM gate deciding when Model 2 should ask the LLM to decompose."""
 
+    """
+    Overview
+    1. Natural language question + SelectorResult + join_paths + request_plan
+    2. Rule-based assess()
+        a. Count signals: multi-table, join paths, temporal comparison,
+           multi-dim grouping, subquery need, multiple metrics, full report
+        b. Score 0.0-1.0, classify: simple (<0.25), moderate (0.25-0.5), complex (>=0.5)
+        c. recommendedSteps: simple=1, moderate=2, complex=3-4
+    3. LLM hybrid gate (optional)
+        a. If LLM configured, call llm.assess_complexity()
+        b. LLM can override rule-based level/score/signals
+        c. Strategy: "hybrid_rule_llm" vs "rule_based"
+    4. Return ComplexityAssessment {level, score, signals, recommendedSteps}
+
+    Used by DecomposerAgent to decide: simple -> direct SQL, complex -> decompose.
+    """
+
     async def assess_hybrid(
         self,
         question: str,
