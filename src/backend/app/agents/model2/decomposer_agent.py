@@ -11,6 +11,20 @@ from .contracts import DecompositionPlan, SelectorResult
 class DecomposerAgent:
     """MAC-SQL-style decomposition with hybrid rule-based + LLM gating and expansion."""
 
+    """
+    Overview
+    1. Natural language question
+    2. Query planer
+        a. If simple question -> direct sql -> generate sql -> execute sql
+        b. If complex question -> decompose into sub-questions -> solve step-by-step ->  Optimized SQL Plan (top 2 sql candidates) -> orchestration
+
+    
+    Split a complex BI question into sub-questions and solve them step-by-step 
+    1. Determistic planing
+    2. ComplexityAssessor.assess_hybrid(): evaluate the complexity of the question and decide whether to decompose or not
+        a. if it is simple -> simple plan -> create sub-questions by rule-based method -> check deterministic audit plan again -> use llm to generate sql -> refine sql -> return 1 candidate sql 
+        b. if it is complex -> decomposed plan -> create many sub-questions by llm -> solve each question step-by-step -> merge all results -> create 2 sql candidates -> use orchestrator to try 2 options.
+    """
     def __init__(self, complexity_assessor: ComplexityAssessor | None = None) -> None:
         self.complexity_assessor = complexity_assessor or ComplexityAssessor()
 
