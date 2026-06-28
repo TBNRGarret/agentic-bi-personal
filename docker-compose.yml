@@ -134,6 +134,24 @@ services:
     networks:
       - airflow
 
+  # -- FalkorDB (Graph DB for QueryWeaver-style schema graph) --------
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: agentic-bi-falkordb
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+      - "3004:3000"
+    volumes:
+      - falkordb_data:/data
+    networks:
+      - airflow
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -p 6379 PING | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   # ── Observation Service (Backend API) ───────────────────────
   observation-service:
     build:
@@ -156,6 +174,8 @@ services:
       OBSERVATION_QUERY_TIMEOUT_SECONDS: ${OBSERVATION_QUERY_TIMEOUT_SECONDS:-10}
       DISABLED_ANALYTICS_TABLES: ${DISABLED_ANALYTICS_TABLES:-}
       DATAHUB_GMS_URL: ${DATAHUB_GMS_URL:-http://datahub-gms:8080}
+      FALKORDB_HOST: ${FALKORDB_HOST:-falkordb}
+      FALKORDB_PORT: ${FALKORDB_PORT:-6379}
       LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse-web:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
@@ -181,3 +201,4 @@ volumes:
   minio_data:
   metabase_db_data:
   clickhouse_data:
+  falkordb_data:

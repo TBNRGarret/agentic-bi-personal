@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, Sparkles } from "lucide-react";
+import { Cpu, Send, Sparkles } from "lucide-react";
 import { api } from "../../services/api.service";
 import { DynamicChart, type ChartSpec } from "../Charts/DynamicChart";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { AgentFlowGraph } from "./AgentFlowGraph";
 
 interface ObserveChartSpec extends ChartSpec {
   id?: string;
@@ -28,6 +29,7 @@ interface UsageSummary {
 interface ObserveChatResponse {
   answer?: string;
   agent?: string;
+  model?: string;
   intent?: string;
   status?: string;
   executionTimeMs?: number;
@@ -48,6 +50,7 @@ interface ObserveChatResponse {
   sessionId?: string;
   suggestions?: string[];
   selectedTables?: string[];
+  usedTables?: string[];
   searchedTables?: string[];
   routeNote?: string;
   tableSelection?: {
@@ -82,6 +85,7 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   data?: ObserveChatResponse;
+  stages?: StreamEvent[];
 }
 
 interface ChatSession {
@@ -94,6 +98,8 @@ interface ChatSession {
     payload?: ObserveChatResponse;
   }>;
 }
+
+type AgentModel = "model1" | "model2";
 
 interface StreamEvent {
   type?: "stage" | "delta" | "final";
@@ -187,14 +193,18 @@ function chartMatchesRows(
   rows: Record<string, unknown>[],
   question: string,
 ): boolean {
+  const reason = String(chartSpec.reason || "").toLowerCase();
+  if (reason.includes("lookup-shaped")) return false;
   if (chartSpec.type === "table") return rows.length > 0;
   if (rows.length < 2) return false;
   const columns = new Set(rows.flatMap((row) => Object.keys(row)));
   const yColumns = Array.isArray(chartSpec.y) ? chartSpec.y : chartSpec.y ? [chartSpec.y] : [];
   const seriesColumns = Array.isArray(chartSpec.series) ? chartSpec.series : chartSpec.series ? [chartSpec.series] : [];
-  if (chartSpec.x && !columns.has(chartSpec.x)) return false;
+  if (!chartSpec.x || !columns.has(chartSpec.x)) return false;
   if (seriesColumns.some((column) => !columns.has(column))) return false;
   if (yColumns.length === 0 || !yColumns.some((column) => columns.has(column))) return false;
+  const distinctXValues = new Set(rows.map((row) => String(row[chartSpec.x as string] ?? "")));
+  if (distinctXValues.size < 2) return false;
   if (asksForLatency(question) && !yColumns.some(isLatencyColumn)) return false;
   return true;
 }
@@ -250,6 +260,19 @@ function rowsForChartSource(metrics: unknown, source?: string): Record<string, u
   return arrayRows((metrics as Record<string, unknown>)[source]) || [];
 }
 
+function tablesUsedBySql(data?: ObserveChatResponse): string[] {
+  const used = Array.isArray(data?.usedTables) ? data.usedTables.filter(Boolean) : [];
+  if (used.length) return used;
+  const selected = Array.isArray(data?.selectedTables) ? data.selectedTables.filter(Boolean) : [];
+  return selected;
+}
+
+function graphContextTables(data?: ObserveChatResponse): string[] {
+  const context = Array.isArray(data?.searchedTables) ? data.searchedTables.filter(Boolean) : [];
+  const used = new Set(tablesUsedBySql(data));
+  return context.filter((table) => !used.has(table));
+}
+
 function fallbackAnswer(data?: ObserveChatResponse): string {
   const rowCount = typeof data?.rowCount === "number" ? data.rowCount : getRows(data).length;
   const tables = Array.isArray(data?.selectedTables) && data.selectedTables.length
@@ -265,12 +288,14 @@ function numberValue(value: unknown): number {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
-function usageSummary(data?: ObserveChatResponse): { totalTokens: number; estimatedCostUsd: number } {
-  const usage = data?.llmUsage || data?.usage || data?.llmSynthesis?.usage || {};
-  const promptTokens = numberValue(usage.promptTokens ?? usage.prompt_tokens);
-  const completionTokens = numberValue(usage.completionTokens ?? usage.completion_tokens);
-  const totalTokens = numberValue(usage.totalTokens ?? usage.total_tokens) || promptTokens + completionTokens;
-  const estimatedCostUsd = numberValue(usage.estimatedCostUsd ?? usage.totalCostUsd ?? data?.llmSynthesis?.totalCostUsd);
+function usageSummary(data?: ObserveChatResponse): { totalTokens: number; estimatedCostUsd: number } | null {
+  const rawUsage = data?.llmUsage || data?.usage || data?.llmSynthesis?.usage;
+  if (!rawUsage) return null;
+  const promptTokens = numberValue(rawUsage.promptTokens ?? rawUsage.prompt_tokens);
+  const completionTokens = numberValue(rawUsage.completionTokens ?? rawUsage.completion_tokens);
+  const totalTokens = numberValue(rawUsage.totalTokens ?? rawUsage.total_tokens) || promptTokens + completionTokens;
+  const estimatedCostUsd = numberValue(rawUsage.estimatedCostUsd ?? rawUsage.totalCostUsd ?? data?.llmSynthesis?.totalCostUsd);
+  if (totalTokens <= 0 && estimatedCostUsd <= 0) return null;
   return { totalTokens, estimatedCostUsd };
 }
 
@@ -394,6 +419,7 @@ async function readObserveStream(response: Response, onEvent: (event: StreamEven
 
 function TokenUsageBadge({ data }: { data: ObserveChatResponse }) {
   const usage = usageSummary(data);
+  if (!usage) return null;
   return (
     <div className="observe-cost-badge">
       {usage.totalTokens.toLocaleString()} tokens
@@ -408,7 +434,7 @@ export function ObserveChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [progressMessage, setProgressMessage] = useState("Dang phan tich telemetry...");
   const [loading, setLoading] = useState(false);
-  const [windowHours, setWindowHours] = useState(24);
+  const [agentModel, setAgentModel] = useState<AgentModel>("model1");
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [sessionId, setSessionId] = useState("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -450,7 +476,7 @@ export function ObserveChatPanel() {
     setMessages((prev) => [
       ...prev,
       { role: "user", content: question },
-      { role: "assistant", content: "" },
+      { role: "assistant", content: "", stages: [] },
     ]);
     setProgressMessage("Dang phan tich telemetry...");
     setLoading(true);
@@ -464,9 +490,9 @@ export function ObserveChatPanel() {
     try {
       const response = await api.observeChatStream(
         question,
-        windowHours,
         conversation,
         activeSessionId,
+        agentModel,
       );
       if (!response.ok || !response.body) {
         throw new Error(`Stream failed: ${response.statusText || response.status}`);
@@ -475,6 +501,10 @@ export function ObserveChatPanel() {
       await readObserveStream(response, (event) => {
         if (event.type === "stage") {
           setProgressMessage(event.message || `Dang xu ly ${event.stage || "yeu cau"}...`);
+          setMessages((prev) => updateAssistant(prev, assistantIndex, (message) => ({
+            ...message,
+            stages: [...(message.stages || []), event],
+          })));
         }
         if (event.type === "delta" && event.text) {
           deltaBatcher.push(event.text);
@@ -512,6 +542,7 @@ export function ObserveChatPanel() {
       role: message.role,
       content: message.content || (message.role === "assistant" ? String(message.payload?.answer || fallbackAnswer(message.payload)) : ""),
       data: message.role === "assistant" ? message.payload : undefined,
+      stages: [],
     })));
   };
 
@@ -523,23 +554,45 @@ export function ObserveChatPanel() {
     setMessages([]);
   };
 
+  const [sidebarWidth, setSidebarWidth] = useState(380);
+  const isDraggingRef = useRef(false);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDraggingRef.current) return;
+    const newWidth = window.innerWidth - e.clientX;
+    if (newWidth > 250 && newWidth < 800) {
+      setSidebarWidth(newWidth);
+    }
+  };
+
+  const handleMouseUp = () => {
+    isDraggingRef.current = false;
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+  };
+
   return (
-    <div className="fade-in observe-chat-page">
-      <div className="observe-chat-shell">
-        <div className="observe-chat-main">
+    <div className="fade-in observe-chat-page" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <div className="observe-chat-shell" style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <div className="observe-chat-layout" style={{ width: "100%", display: "grid", gridTemplateColumns: `1fr ${sidebarWidth}px`, height: "100%", position: "relative" }}>
+          <div className="observe-chat-main observe-chat-main-area" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflow: "hidden" }}>
           <div className="observe-chat-toolbar">
             <div className="observe-chat-mode">
               <Sparkles size={16} />
               <span>Monitoring chat</span>
             </div>
             <label className="observe-window-control">
-              <span>Window</span>
-              <select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
-                <option value={1}>1h</option>
-                <option value={6}>6h</option>
-                <option value={24}>24h</option>
-                <option value={72}>72h</option>
-                <option value={168}>7d</option>
+              <span>Model</span>
+              <select value={agentModel} onChange={(event) => setAgentModel(event.target.value as AgentModel)} disabled={loading}>
+                <option value="model1">Model 1</option>
+                <option value="model2">Model 2 Hybrid</option>
               </select>
             </label>
             <label className="observe-window-control">
@@ -612,18 +665,23 @@ export function ObserveChatPanel() {
                 {message.role === "assistant" && message.data && (
                   <TokenUsageBadge data={message.data} />
                 )}
-                {message.role === "assistant" && Array.isArray(message.data?.selectedTables) && message.data.selectedTables.length > 0 && (
+                {message.role === "assistant" && tablesUsedBySql(message.data).length > 0 && (
                   <details className="observe-data-sources">
                     <summary>
-                      Data used: {message.data.selectedTables.join(", ")}
+                      Data used: {tablesUsedBySql(message.data).join(", ")}
                     </summary>
                     <div className="observe-data-source-details">
-                      {(message.data.tableSelection?.requiredCapabilities || []).length > 0 && (
+                      {graphContextTables(message.data).length > 0 && (
                         <div>
-                          Required: {message.data.tableSelection?.requiredCapabilities?.join(", ")}
+                          Graph context: {graphContextTables(message.data).join(", ")}
                         </div>
                       )}
-                      {(message.data.tableSelection?.candidates || []).map((candidate) => (
+                      {(message.data?.tableSelection?.requiredCapabilities || []).length > 0 && (
+                        <div>
+                          Required: {message.data?.tableSelection?.requiredCapabilities?.join(", ")}
+                        </div>
+                      )}
+                      {(message.data?.tableSelection?.candidates || []).map((candidate) => (
                         <div key={candidate.tableName}>
                           <strong>{candidate.tableName}</strong>
                           {" "}
@@ -659,7 +717,27 @@ export function ObserveChatPanel() {
             <div ref={scrollRef} />
           </div>
 
-          <div className="observe-input-row">
+          <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.12)", background: "rgba(15, 23, 42, 0.78)", padding: "12px 20px 0" }}>
+            <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10 }}>
+              <div style={{ alignItems: "center", color: "#cbd5e1", display: "flex", fontSize: 12, fontWeight: 700, gap: 8, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                <Cpu size={15} />
+                Model
+              </div>
+              <div style={{ background: "rgba(15, 23, 42, 0.9)", border: "1px solid rgba(148, 163, 184, 0.35)", borderRadius: 10, display: "grid", gridTemplateColumns: "1fr 1fr", minWidth: 280, overflow: "hidden", padding: 3 }}>
+                <button type="button" onClick={() => setAgentModel("model1")} disabled={loading} style={{ background: agentModel === "model1" ? "#f97316" : "transparent", border: 0, borderRadius: 7, color: agentModel === "model1" ? "#fff7ed" : "#94a3b8", cursor: loading ? "not-allowed" : "pointer", fontWeight: 800, minHeight: 34, padding: "0 14px" }}>
+                  Model 1
+                </button>
+                <button type="button" onClick={() => setAgentModel("model2")} disabled={loading} style={{ background: agentModel === "model2" ? "#06b6d4" : "transparent", border: 0, borderRadius: 7, color: agentModel === "model2" ? "#ecfeff" : "#94a3b8", cursor: loading ? "not-allowed" : "pointer", fontWeight: 800, minHeight: 34, padding: "0 14px" }}>
+                  Model 2 Hybrid
+                </button>
+              </div>
+              <span style={{ color: "#94a3b8", fontSize: 12 }}>
+                {agentModel === "model2" ? "MAC-SQL + QueryWeaver hybrid" : "Current production pipeline"}
+              </span>
+            </div>
+          </div>
+
+          <div className="observe-input-row" style={{ borderTop: 0 }}>
             <textarea
               className="observe-chat-input"
               placeholder="Hoi ve loi, latency, alert, trace, log hoac suc khoe he thong..."
@@ -680,7 +758,36 @@ export function ObserveChatPanel() {
             </button>
           </div>
         </div>
+        {/* Thanh kéo thả để mở rộng (Resizer bar) */}
+        <div
+          className="observe-layout-resizer"
+          onMouseDown={handleMouseDown}
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            right: `${sidebarWidth - 3}px`,
+            width: "6px",
+            cursor: "col-resize",
+            background: "var(--border-color, #334155)",
+            zIndex: 50,
+            transition: "background 0.2s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "#06b6d4"; }}
+          onMouseLeave={(e) => { if (!isDraggingRef.current) e.currentTarget.style.background = "var(--border-color, #334155)"; }}
+        >
+          <div style={{ position: "absolute", top: "50%", left: "1px", width: "4px", height: "24px", background: "#cbd5e1", borderRadius: "2px", transform: "translateY(-50%)" }} />
+        </div>
+        <div className="observe-chat-flow-container" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "var(--bg-card)", borderLeft: "1px solid var(--border-color)", overflowY: "auto" }}>
+          <AgentFlowGraph
+            stages={messages[messages.length - 1]?.stages || []}
+            data={messages[messages.length - 1]?.data}
+            loading={loading}
+            question={messages[messages.length - 2]?.content || ""}
+          />
+        </div>
       </div>
     </div>
-  );
+  </div>
+);
 }

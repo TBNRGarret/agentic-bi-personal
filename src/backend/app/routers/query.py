@@ -4,7 +4,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..agents.dashboard_generator import generate_dashboard
+from ..agents.model2 import HybridText2SQLOrchestrator
 from ..agents.monitoring_agent import MonitoringAgent
 from ..agents.multi_agent import MultiAgentOrchestrator
 from ..agents.sql_safety import SqlSafetyError, validate_readonly_sql
@@ -27,9 +28,9 @@ from ..services.context_manager import ContextManager
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     target: str = "auto"
+    model: Literal["model1", "model2"] = "model1"
     limit: int = Field(default=100, ge=1, le=500)
     conversation: list[dict[str, Any]] = Field(default_factory=list)
-    windowHours: int | None = None
     includeSynthesis: bool = True
     sessionId: str | None = Field(default=None, max_length=64)
 
@@ -54,6 +55,7 @@ def build_router(
     router = APIRouter()
     agent = MonitoringAgent(settings, clickhouse, metadata, postgres)
     orchestrator = MultiAgentOrchestrator(settings, agent)
+    model2_orchestrator = HybridText2SQLOrchestrator(settings, clickhouse, metadata, postgres)
 
     async def run_chat(
         payload: ChatRequest, endpoint: str, principal: Principal
@@ -69,8 +71,9 @@ def build_router(
             )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        request_memory = _memory_with_window(memory, payload.windowHours)
-        result = await orchestrator.answer(
+        request_memory = memory
+        active_orchestrator = model2_orchestrator if payload.model == "model2" else orchestrator
+        result = await active_orchestrator.answer(
             payload.question,
             target=payload.target,
             limit=payload.limit,
@@ -123,10 +126,10 @@ def build_router(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-        request_memory = _memory_with_window(memory, payload.windowHours)
+        request_memory = memory
         return StreamingResponse(
             _stream_chat_events(
-                orchestrator,
+                model2_orchestrator if payload.model == "model2" else orchestrator,
                 postgres,
                 payload,
                 query_id,
@@ -522,7 +525,11 @@ async def _stream_chat_events(
     producer = asyncio.create_task(produce())
     try:
         while True:
-            event = await queue.get()
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=10.0)
+            except (asyncio.TimeoutError, TimeoutError):
+                yield ": keepalive\n\n"
+                continue
             if event is None:
                 break
             yield _sse(event)
@@ -562,6 +569,7 @@ async def _audit_result(
             "metadata": {
                 "metadataContext": result.get("metadataContext"),
                 "conversationLength": len(payload.conversation),
+                "model": getattr(payload, "model", "model1"),
             },
             **(_identity(principal) if principal else {}),
         }
@@ -599,14 +607,6 @@ def _merge_tables(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if name:
                 merged[name] = table
     return sorted(merged.values(), key=lambda table: str(table.get("tableName") or ""))
-
-
-def _memory_with_window(
-    memory: dict[str, Any], window_hours: int | None
-) -> dict[str, Any]:
-    if not window_hours:
-        return memory
-    return {**memory, "timeframe": f"{window_hours}h"}
 
 
 def _identity(principal: Principal) -> dict[str, str]:

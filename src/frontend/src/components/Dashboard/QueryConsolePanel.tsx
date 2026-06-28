@@ -4,6 +4,7 @@ import {
   Calculator,
   Clipboard,
   Copy,
+  Cpu,
   Database,
   Download,
   FileSearch,
@@ -106,6 +107,7 @@ interface BiCostEstimate {
 
 type Mode = "sql" | "chat";
 type Target = "auto" | "dwh" | "clickhouse";
+type AgentModel = "model1" | "model2";
 type HistoryFilter = "recent" | "favorites";
 
 const HISTORY_KEY = "observation.bi.queryHistory.v1";
@@ -440,28 +442,125 @@ function StageTrail({ stages }: { stages?: StreamEvent[] }) {
 }
 
 function ResultTable({ rows }: { rows: Record<string, unknown>[] }) {
+  const [filterText, setFilterText] = useState("");
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortAsc, setSortAsc] = useState(true);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+
   if (!rows.length) return null;
   const columns = Object.keys(rows[0]);
+
+  const filteredRows = useMemo(() => {
+    if (!filterText.trim()) return rows;
+    const query = filterText.toLowerCase();
+    return rows.filter((row) =>
+      columns.some((col) => cellValue(row[col]).toLowerCase().includes(query))
+    );
+  }, [rows, columns, filterText]);
+
+  const sortedRows = useMemo(() => {
+    if (!sortCol) return filteredRows;
+    return [...filteredRows].sort((a, b) => {
+      const valA = a[sortCol];
+      const valB = b[sortCol];
+      const numA = numberValue(valA);
+      const numB = numberValue(valB);
+      if (numA !== undefined && numB !== undefined) {
+        return sortAsc ? numA - numB : numB - numA;
+      }
+      const strA = cellValue(valA).toLowerCase();
+      const strB = cellValue(valB).toLowerCase();
+      return sortAsc ? strA.localeCompare(strB) : strB.localeCompare(strA);
+    });
+  }, [filteredRows, sortCol, sortAsc]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedRows = sortedRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const handleSort = (col: string) => {
+    if (sortCol === col) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortCol(col);
+      setSortAsc(true);
+    }
+  };
+
   return (
-    <div className="chat-result-table">
-      <table className="data-table">
-        <thead>
-          <tr>
-            {columns.map((column) => (
-              <th key={column}>{column}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, 12).map((row, rowIndex) => (
-            <tr key={rowIndex}>
+    <div className="chat-result-table premium-glass-panel" style={{ margin: "16px 0", overflow: "hidden" }}>
+      <div className="table-filter-bar">
+        <FileSearch size={16} color="var(--text-muted)" />
+        <input
+          type="text"
+          className="table-filter-input"
+          placeholder="Instant filter in results..."
+          value={filterText}
+          onChange={(e) => {
+            setFilterText(e.target.value);
+            setPage(1);
+          }}
+        />
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          {sortedRows.length} {sortedRows.length === 1 ? "row" : "rows"} found
+        </span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table className="data-table">
+          <thead>
+            <tr>
               {columns.map((column) => (
-                <td key={column}>{cellValue(row[column])}</td>
+                <th
+                  key={column}
+                  className="clickable-th"
+                  onClick={() => handleSort(column)}
+                  title="Click to sort"
+                >
+                  {column} {sortCol === column ? (sortAsc ? "▲" : "▼") : ""}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {paginatedRows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {columns.map((column) => (
+                  <td key={column}>{cellValue(row[column])}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {sortedRows.length > pageSize && (
+        <div className="pagination-toolbar">
+          <span>
+            Showing {(currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, sortedRows.length)} of {sortedRows.length}
+          </span>
+          <div className="pagination-controls">
+            <button
+              type="button"
+              className="pagination-btn"
+              disabled={currentPage === 1}
+              onClick={() => setPage(currentPage - 1)}
+            >
+              Previous
+            </button>
+            <span style={{ fontSize: 12, color: "var(--text-primary)" }}>
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              type="button"
+              className="pagination-btn"
+              disabled={currentPage === totalPages}
+              onClick={() => setPage(currentPage + 1)}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -529,22 +628,29 @@ function ClarificationPanel({
   if (!clarification) return null;
 
   return (
-    <div className="bi-clarification-panel">
-      <div className="bi-clarification-title">{clarification.question || "Clarify request"}</div>
-      <div className="bi-clarification-options">
+    <div className="premium-glass-panel" style={{ padding: 24, margin: "16px 0" }}>
+      <div className="premium-modal-title" style={{ marginBottom: 16 }}>
+        {clarification.question || "Clarify request"}
+      </div>
+      <div className="premium-card-grid">
         {clarification.options?.map((option) => {
           const suffix = option.questionSuffix || option.value || option.label || "";
           return (
-            <button
+            <div
               key={option.value || option.label || suffix}
-              type="button"
-              className="btn btn-secondary bi-clarification-option"
+              className="interactive-card"
               onClick={() => suffix && onSelect(suffix)}
-              disabled={!suffix}
+              style={{ display: "flex", flexDirection: "column", gap: 8 }}
             >
-              <span>{option.label || option.value || "Option"}</span>
-              {option.description && <small>{option.description}</small>}
-            </button>
+              <strong style={{ color: "var(--neon-orange)", fontSize: 15 }}>
+                {option.label || option.value || "Option"}
+              </strong>
+              {option.description && (
+                <span style={{ color: "var(--text-secondary)", fontSize: 13 }}>
+                  {option.description}
+                </span>
+              )}
+            </div>
           );
         })}
       </div>
@@ -567,6 +673,9 @@ function ChatResultPreview({
   onClarificationSelect: (questionSuffix: string) => void;
   onFollowup: (question: string) => void;
 }) {
+  const [showCompareModal, setShowCompareModal] = useState(false);
+  const [manualSql, setManualSql] = useState("");
+
   const rows = getRows(data);
   const chart = getChartSpec(data);
   const sql = typeof data?.sql === "string" ? data.sql : "";
@@ -582,11 +691,27 @@ function ChatResultPreview({
     ? data.suggestions.filter((item): item is string => typeof item === "string")
     : [];
 
+  const autoOptimizeChart = () => {
+    if (!rows.length) return;
+    const sample = rows[0];
+    const keys = Object.keys(sample);
+    const hasDate = keys.some((k) => k.toLowerCase().includes("date") || k.toLowerCase().includes("time"));
+    if (hasDate) {
+      onChartTypeChange("line");
+      return;
+    }
+    if (rows.length <= 5 && rows.length >= 2) {
+      onChartTypeChange("pie");
+      return;
+    }
+    onChartTypeChange("bar");
+  };
+
   if (!data && !sql) return null;
 
   return (
     <div className="chat-result-preview">
-      <div className="bi-result-toolbar">
+      <div className="bi-result-toolbar" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         {rows.length >= 2 && (
           <div className="bi-chart-toggle" role="group" aria-label="Chart type">
             {CHART_OPTIONS.map((option) => {
@@ -605,6 +730,18 @@ function ChatResultPreview({
             })}
           </div>
         )}
+        {rows.length >= 2 && (
+          <button className="btn btn-secondary bi-mini-btn" type="button" onClick={autoOptimizeChart} title="Auto select best chart for data">
+            <Star size={14} color="var(--neon-orange)" />
+            Auto-Optimize Chart
+          </button>
+        )}
+        {sql && (
+          <button className="btn btn-secondary bi-mini-btn" type="button" onClick={() => setShowCompareModal(true)}>
+            <Cpu size={14} color="var(--accent-cyan)" />
+            Compare AI vs Manual SQL
+          </button>
+        )}
         {status === "error" && (
           <button className="btn btn-secondary bi-mini-btn" type="button" onClick={onRetry}>
             <RefreshCcw size={14} />
@@ -622,7 +759,9 @@ function ChatResultPreview({
       )}
 
       {rows.length >= 2 && selectedType !== "table" && (
-        <DynamicChart chartSpec={chart} rows={rows} typeOverride={selectedType} visualizationDsl={visualizationDsl} />
+        <div className="premium-glass-panel" style={{ padding: 20, margin: "16px 0" }}>
+          <DynamicChart chartSpec={chart} rows={rows} typeOverride={selectedType} visualizationDsl={visualizationDsl} />
+        </div>
       )}
 
       <ResultTable rows={rows} />
@@ -648,17 +787,17 @@ function ChatResultPreview({
       )}
 
       {sql && (
-        <details className="chat-sql-details">
-          <summary>SQL and profile</summary>
-          <div className="bi-sql-actions">
+        <details className="chat-sql-details premium-glass-panel" style={{ padding: 16, marginTop: 16 }}>
+          <summary style={{ cursor: "pointer", fontWeight: 700, color: "var(--text-primary)" }}>SQL and profile</summary>
+          <div className="bi-sql-actions" style={{ marginTop: 12 }}>
             <button className="btn btn-secondary bi-mini-btn" type="button" onClick={() => navigator.clipboard?.writeText(sql)}>
               <Copy size={14} />
               Copy SQL
             </button>
           </div>
-          <pre>{sql}</pre>
+          <pre style={{ marginTop: 12, background: "var(--bg-primary)", padding: 12, borderRadius: 8 }}>{sql}</pre>
           {profile && (
-            <div className="chat-profile">
+            <div className="chat-profile" style={{ marginTop: 12 }}>
               {Object.entries(profile).map(([key, value]) => (
                 <span key={key}>
                   {key}: {cellValue(value)}
@@ -667,6 +806,43 @@ function ChatResultPreview({
             </div>
           )}
         </details>
+      )}
+
+      {showCompareModal && (
+        <div className="modal-backdrop" onClick={() => setShowCompareModal(false)}>
+          <div className="premium-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="premium-modal-header">
+              <span className="premium-modal-title">AI vs Manual SQL Comparison</span>
+              <button type="button" className="premium-modal-close" onClick={() => setShowCompareModal(false)}>×</button>
+            </div>
+            <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
+              <div className="premium-glass-panel" style={{ padding: 16 }}>
+                <h4 style={{ color: "var(--neon-orange)", marginBottom: 8 }}>AI Generated SQL</h4>
+                <pre style={{ background: "var(--bg-primary)", padding: 12, borderRadius: 8, fontSize: 12, maxHeight: 200, overflow: "auto" }}>{sql}</pre>
+                <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}>
+                  <div>Estimated Tokens: {estimateTokens(sql)}</div>
+                  <div>Optimized for ClickHouse Gold tables</div>
+                </div>
+              </div>
+              <div className="premium-glass-panel" style={{ padding: 16 }}>
+                <h4 style={{ color: "var(--accent-cyan)", marginBottom: 8 }}>Your Manual SQL</h4>
+                <textarea
+                  style={{ width: "100%", height: 140, background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-color)", borderRadius: 8, padding: 12, fontSize: 12, fontFamily: "var(--font-mono)" }}
+                  placeholder="Paste or type your SQL here to compare..."
+                  value={manualSql}
+                  onChange={(e) => setManualSql(e.target.value)}
+                />
+                <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}>
+                  <div>Estimated Tokens: {estimateTokens(manualSql)}</div>
+                  <div>{manualSql.trim() ? (manualSql.length < sql.length ? "More compact than AI SQL" : "More verbose than AI SQL") : "Enter SQL to see insights"}</div>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button type="button" className="btn btn-primary" onClick={() => setShowCompareModal(false)}>Close Comparison</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -776,6 +952,7 @@ export function QueryConsolePanel() {
   const [explainLoading, setExplainLoading] = useState(false);
   const [explainError, setExplainError] = useState("");
   const [chatTarget, setChatTarget] = useState<Target>("auto");
+  const [chatModel, setChatModel] = useState<AgentModel>("model1");
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -953,6 +1130,7 @@ export function QueryConsolePanel() {
         100,
         conversation,
         chatSessionId || undefined,
+        chatModel,
       );
       if (!response.ok || !response.body) {
         const err = await response.json().catch(() => ({ error: response.statusText || response.status }));
@@ -1034,6 +1212,15 @@ export function QueryConsolePanel() {
           BI Chat
         </button>
         <div style={{ flex: 1 }} />
+        {mode === "chat" && (
+          <label className="bi-target-control">
+            <Cpu size={14} />
+            <select value={chatModel} onChange={(event) => setChatModel(event.target.value as AgentModel)} disabled={chatLoading}>
+              <option value="model1">Model 1</option>
+              <option value="model2">Model 2 Hybrid</option>
+            </select>
+          </label>
+        )}
         {mode === "chat" && (
           <label className="bi-target-control">
             <Database size={14} />
@@ -1213,6 +1400,24 @@ export function QueryConsolePanel() {
               )}
               <div ref={scrollRef} />
             </div>
+            <div style={{ borderTop: "1px solid rgba(148, 163, 184, 0.18)", display: "flex", flexWrap: "wrap", gap: 10, padding: "12px 14px 0" }}>
+              <div style={{ alignItems: "center", color: "#cbd5e1", display: "flex", fontSize: 12, fontWeight: 700, gap: 8, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                <Cpu size={15} />
+                Model
+              </div>
+              <div style={{ background: "rgba(15, 23, 42, 0.9)", border: "1px solid rgba(148, 163, 184, 0.35)", borderRadius: 10, display: "grid", gridTemplateColumns: "1fr 1fr", minWidth: 280, overflow: "hidden", padding: 3 }}>
+                <button type="button" onClick={() => setChatModel("model1")} disabled={chatLoading} style={{ background: chatModel === "model1" ? "#f97316" : "transparent", border: 0, borderRadius: 7, color: chatModel === "model1" ? "#fff7ed" : "#94a3b8", cursor: chatLoading ? "not-allowed" : "pointer", fontWeight: 800, minHeight: 34, padding: "0 14px" }}>
+                  Model 1
+                </button>
+                <button type="button" onClick={() => setChatModel("model2")} disabled={chatLoading} style={{ background: chatModel === "model2" ? "#06b6d4" : "transparent", border: 0, borderRadius: 7, color: chatModel === "model2" ? "#ecfeff" : "#94a3b8", cursor: chatLoading ? "not-allowed" : "pointer", fontWeight: 800, minHeight: 34, padding: "0 14px" }}>
+                  Model 2 Hybrid
+                </button>
+              </div>
+              <span style={{ alignSelf: "center", color: "#94a3b8", fontSize: 12 }}>
+                {chatModel === "model2" ? "MAC-SQL + QueryWeaver hybrid" : "Current production pipeline"}
+              </span>
+            </div>
+
             <div className="chat-input-row">
               <input
                 className="chat-input"

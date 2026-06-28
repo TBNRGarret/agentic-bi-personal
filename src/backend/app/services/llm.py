@@ -9,6 +9,7 @@ from typing import Any, Callable
 import httpx
 
 from ..config import Settings
+from .llm_prompts import COMPLEXITY_ASSESSMENT_SYSTEM_PROMPT, DECOMPOSITION_SYSTEM_PROMPT
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,122 @@ class LlmService:
             database_error=database_error,
             request_plan=request_plan,
         )
+
+    async def decompose_sql_question(
+        self,
+        *,
+        question: str,
+        tables: list[dict[str, Any]],
+        datasource: str,
+        request_plan: dict[str, Any],
+        complexity: dict[str, Any],
+        join_paths: list[dict[str, Any]],
+        max_steps: int,
+    ) -> dict[str, Any]:
+        if not self.settings.llm_configured:
+            return {
+                "status": "disabled",
+                "provider": self.settings.llm_provider,
+                "model": self.settings.llm_model,
+                "fallbackReason": "LLM API key is not configured.",
+            }
+        context = {
+            "question": question,
+            "datasource": datasource,
+            "structuredRequest": request_plan,
+            "complexity": complexity,
+            "maxSteps": max(2, min(max_steps, 4)),
+            "tables": [_compact_table(table) for table in tables[:8]],
+            "joinPaths": join_paths[:5],
+        }
+        try:
+            response = await self._complete(
+                DECOMPOSITION_SYSTEM_PROMPT,
+                json.dumps(context, ensure_ascii=False, default=str)[:16000],
+                timeout_seconds=self.settings.llm_sql_timeout_seconds,
+                max_retries=1,
+            )
+            parsed = _parse_json_object(response.content)
+            sub_questions = _parse_sub_questions(parsed.get("sub_questions"))
+            if not sub_questions:
+                raise ValueError("LLM decomposition did not return sub_questions")
+            return {
+                "status": str(parsed.get("status") or "success"),
+                "provider": self.settings.llm_provider,
+                "model": self.settings.llm_model,
+                "strategy": str(parsed.get("strategy") or "llm_decomposition"),
+                "subQuestions": sub_questions[: max(2, min(max_steps, 4))],
+                "usage": {
+                    "prompt_tokens": response.prompt_tokens,
+                    "completion_tokens": response.completion_tokens,
+                    "total_tokens": response.prompt_tokens + response.completion_tokens,
+                },
+                "latencyMs": response.latency_ms,
+                "totalCostUsd": response.estimated_cost_usd,
+                "costSource": response.cost_source,
+            }
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "provider": self.settings.llm_provider,
+                "model": self.settings.llm_model,
+                "error": _safe_error(exc),
+            }
+
+    async def assess_complexity(
+        self,
+        *,
+        question: str,
+        tables: list[dict[str, Any]],
+        join_paths: list[dict[str, Any]],
+        rule_based_assessment: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not self.settings.llm_configured:
+            return {
+                "status": "disabled",
+                "provider": self.settings.llm_provider,
+                "model": self.settings.llm_model,
+                "fallbackReason": "LLM API key is not configured.",
+            }
+        context = {
+            "question": question,
+            "ruleBasedAssessment": rule_based_assessment,
+            "tables": [_compact_table(table) for table in tables[:8]],
+            "joinPaths": join_paths[:5],
+        }
+        try:
+            response = await self._complete(
+                COMPLEXITY_ASSESSMENT_SYSTEM_PROMPT,
+                json.dumps(context, ensure_ascii=False, default=str)[:16000],
+                timeout_seconds=self.settings.llm_sql_timeout_seconds,
+                max_retries=1,
+            )
+            parsed = _parse_json_object(response.content)
+            return {
+                "status": "success",
+                "provider": self.settings.llm_provider,
+                "model": self.settings.llm_model,
+                "level": parsed.get("level") or rule_based_assessment.get("level"),
+                "score": parsed.get("score") or rule_based_assessment.get("score"),
+                "signals": parsed.get("signals") or [],
+                "recommendedSteps": parsed.get("recommended_steps") or parsed.get("recommendedSteps") or rule_based_assessment.get("recommendedSteps"),
+                "rationale": parsed.get("rationale") or "",
+                "usage": {
+                    "prompt_tokens": response.prompt_tokens,
+                    "completion_tokens": response.completion_tokens,
+                    "total_tokens": response.prompt_tokens + response.completion_tokens,
+                },
+                "latencyMs": response.latency_ms,
+                "totalCostUsd": response.estimated_cost_usd,
+                "costSource": response.cost_source,
+            }
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "provider": self.settings.llm_provider,
+                "model": self.settings.llm_model,
+                "error": _safe_error(exc),
+            }
 
     async def _sql_plan(
         self,

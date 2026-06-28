@@ -50,20 +50,26 @@ class Settings(BaseModel):
         "CLICKHOUSE_ANALYTICS_SCHEMAS", "gold,silver,vsf_mart,vsf_stg"
     )
     clickhouse_query_timeout_seconds: float = float(
-        os.getenv("CLICKHOUSE_QUERY_TIMEOUT_SECONDS", "15")
+        os.getenv("CLICKHOUSE_QUERY_TIMEOUT_SECONDS", "60")
     )
-    query_timeout_seconds: int = int(os.getenv("OBSERVATION_QUERY_TIMEOUT_SECONDS", "10"))
+    query_timeout_seconds: int = int(os.getenv("OBSERVATION_QUERY_TIMEOUT_SECONDS", "60"))
 
     dwh_postgres_dsn: str = os.getenv(
         "DWH_POSTGRES_DSN",
         "postgresql://dwh_admin:dwh_admin_password@postgres-dwh:5432/central_dwh",
     )
     postgres_query_timeout_seconds: float = float(
-        os.getenv("POSTGRES_QUERY_TIMEOUT_SECONDS", "15")
+        os.getenv("POSTGRES_QUERY_TIMEOUT_SECONDS", "60")
     )
     datahub_gms_url: str = os.getenv("DATAHUB_GMS_URL", "http://datahub-gms:8080")
     datahub_token: str = os.getenv("DATAHUB_TOKEN", "")
-    datahub_timeout_seconds: float = float(os.getenv("DATAHUB_TIMEOUT_SECONDS", "5"))
+    datahub_timeout_seconds: float = float(os.getenv("DATAHUB_TIMEOUT_SECONDS", "15"))
+    falkordb_host: str = os.getenv("FALKORDB_HOST", "falkordb")
+    falkordb_port: int = int(os.getenv("FALKORDB_PORT", "6379"))
+    falkordb_graph_name: str = os.getenv("FALKORDB_GRAPH_NAME", "agentic_bi_schema")
+    falkordb_enabled: bool = os.getenv("FALKORDB_ENABLED", "true").lower() == "true"
+    falkordb_timeout_seconds: float = float(os.getenv("FALKORDB_TIMEOUT_SECONDS", "5"))
+    falkordb_sync_ttl_seconds: float = float(os.getenv("FALKORDB_SYNC_TTL_SECONDS", "60"))
     metabase_url: str = os.getenv("METABASE_URL", "http://metabase:3000")
     metabase_public_url: str = os.getenv("METABASE_PUBLIC_URL", "http://localhost:3000")
     metabase_admin_email: str = os.getenv("METABASE_ADMIN_EMAIL", "")
@@ -74,7 +80,7 @@ class Settings(BaseModel):
     max_query_rows: int = int(os.getenv("OBSERVATION_MAX_QUERY_ROWS", "500"))
     agent_retry_count: int = int(os.getenv("OBSERVATION_AGENT_RETRY_COUNT", "2"))
     agent_synthesis_timeout_seconds: float = float(
-        os.getenv("OBSERVATION_AGENT_SYNTHESIS_TIMEOUT_SECONDS", "20")
+        os.getenv("OBSERVATION_AGENT_SYNTHESIS_TIMEOUT_SECONDS", "120")
     )
     agent_sql_candidate_count: int = int(os.getenv("OBSERVATION_SQL_CANDIDATE_COUNT", "3"))
 
@@ -82,7 +88,7 @@ class Settings(BaseModel):
     llm_model: str = os.getenv("LLM_MODEL", "openai/gpt-oss-120b:free")
     llm_timeout_seconds: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
     llm_max_retries: int = int(os.getenv("LLM_MAX_RETRIES", "3"))
-    llm_sql_timeout_seconds: float = float(os.getenv("LLM_SQL_TIMEOUT_SECONDS", "15"))
+    llm_sql_timeout_seconds: float = float(os.getenv("LLM_SQL_TIMEOUT_SECONDS", "90"))
     llm_sql_max_retries: int = int(os.getenv("LLM_SQL_MAX_RETRIES", "1"))
     openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
     openrouter_base_url: str = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")

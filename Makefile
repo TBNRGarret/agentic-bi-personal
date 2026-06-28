@@ -23,3 +23,13 @@ restart:
 
 status:
 	docker compose ps
+
+deploy-ui:
+	@bash scripts/auto_deploy.sh
+
+watch-ui:
+	@echo "Watching for file changes to trigger auto-deploy..."
+	@while true; do \
+		inotifywait -r -e modify,create,delete src/ docs/ scripts/ >/dev/null 2>&1 || sleep 5; \
+		make deploy-ui; \
+	done

@@ -83,7 +83,7 @@ type Block =
   | { type: "code"; lang: string; code: string }
   | { type: "table"; lines: string[] }
   | { type: "ul"; items: string[] }
-  | { type: "ol"; items: string[] }
+  | { type: "ol"; items: string[]; start: number }
   | { type: "blockquote"; text: string }
   | { type: "paragraph"; text: string }
   | { type: "blank" };
@@ -104,11 +104,11 @@ function tokenise(markdown: string): Block[] {
     }
 
     // Fenced code block
-    if (/^```/.test(line)) {
-      const lang = line.slice(3).trim();
+    if (/^\s*```/.test(line)) {
+      const lang = line.replace(/^\s*```/, "").trim();
       const codeLines: string[] = [];
       i++;
-      while (i < lines.length && !/^```/.test(lines[i])) {
+      while (i < lines.length && !/^\s*```/.test(lines[i])) {
         codeLines.push(lines[i]);
         i++;
       }
@@ -118,7 +118,7 @@ function tokenise(markdown: string): Block[] {
     }
 
     // Heading
-    const headingMatch = /^(#{1,4})\s+(.+)$/.exec(line);
+    const headingMatch = /^\s*(#{1,4})\s+(.+)$/.exec(line);
     if (headingMatch) {
       blocks.push({
         type: "heading",
@@ -130,15 +130,15 @@ function tokenise(markdown: string): Block[] {
     }
 
     // Horizontal rule
-    if (/^---+$/.test(line.trim()) || /^\*\*\*+$/.test(line.trim())) {
+    if (/^\s*---+$/.test(line.trim()) || /^\s*\*\*\*+$/.test(line.trim())) {
       blocks.push({ type: "hr" });
       i++;
       continue;
     }
 
     // Blockquote
-    if (/^>\s?/.test(line)) {
-      const text = line.replace(/^>\s?/, "");
+    if (/^\s*>\s?/.test(line)) {
+      const text = line.replace(/^\s*>\s?/, "");
       blocks.push({ type: "blockquote", text });
       i++;
       continue;
@@ -156,10 +156,10 @@ function tokenise(markdown: string): Block[] {
     }
 
     // Unordered list
-    if (/^[-*+]\s/.test(line)) {
+    if (/^\s*[-*+]\s/.test(line)) {
       const items: string[] = [];
-      while (i < lines.length && /^[-*+]\s/.test(lines[i])) {
-        items.push(lines[i].replace(/^[-*+]\s+/, ""));
+      while (i < lines.length && /^\s*[-*+]\s/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*+]\s+/, ""));
         i++;
       }
       blocks.push({ type: "ul", items });
@@ -167,13 +167,15 @@ function tokenise(markdown: string): Block[] {
     }
 
     // Ordered list
-    if (/^\d+\.\s/.test(line)) {
+    if (/^\s*\d+\.\s/.test(line)) {
+      const match = /^\s*(\d+)\.\s/.exec(line);
+      const start = match ? parseInt(match[1], 10) : 1;
       const items: string[] = [];
-      while (i < lines.length && /^\d+\.\s/.test(lines[i])) {
-        items.push(lines[i].replace(/^\d+\.\s+/, ""));
+      while (i < lines.length && /^\s*\d+\.\s/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
         i++;
       }
-      blocks.push({ type: "ol", items });
+      blocks.push({ type: "ol", items, start });
       continue;
     }
 
@@ -182,18 +184,19 @@ function tokenise(markdown: string): Block[] {
     while (
       i < lines.length &&
       !/^\s*$/.test(lines[i]) &&
-      !/^#{1,4}\s/.test(lines[i]) &&
-      !/^```/.test(lines[i]) &&
-      !/^[-*+]\s/.test(lines[i]) &&
-      !/^\d+\.\s/.test(lines[i]) &&
-      !/^>\s?/.test(lines[i]) &&
-      !/^---+$/.test(lines[i].trim())
+      !/^\s*#{1,4}\s/.test(lines[i]) &&
+      !/^\s*```/.test(lines[i]) &&
+      !/^\s*[-*+]\s/.test(lines[i]) &&
+      !/^\s*\d+\.\s/.test(lines[i]) &&
+      !/^\s*>\s?/.test(lines[i]) &&
+      !/^\s*---+$/.test(lines[i].trim()) &&
+      !/\|/.test(lines[i])
     ) {
       paraLines.push(lines[i]);
       i++;
     }
     if (paraLines.length) {
-      blocks.push({ type: "paragraph", text: paraLines.join(" ") });
+      blocks.push({ type: "paragraph", text: paraLines.join("\n") });
     }
   }
 
@@ -242,7 +245,7 @@ function renderBlock(block: Block, index: number): ReactNode {
 
     case "ol":
       return (
-        <ol key={index} className="md-ol">
+        <ol key={index} className="md-ol" start={block.start}>
           {block.items.map((item, ii) => (
             <li key={ii}>{parseInline(item)}</li>
           ))}

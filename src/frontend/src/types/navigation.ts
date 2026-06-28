@@ -3,7 +3,8 @@ export type Page =
   | "alerts"
   | "data-quality"
   | "ai-console"
-  | "metabase";
+  | "metabase"
+  | "graph-database";
 
 export interface NavItem {
   id: Page;
@@ -20,6 +21,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "data-quality", label: "Data Quality", icon: "check", section: "Monitoring", description: "Freshness and tests", path: "/DataQuality" },
   { id: "ai-console", label: "AI Console", icon: "terminal", section: "Agentic BI", description: "Ask and investigate", path: "/AIConsole" },
   { id: "metabase", label: "BI Dashboards", icon: "bar-chart", section: "Agentic BI", description: "Explore analytics", path: "/BIDashboards" },
+  { id: "graph-database", label: "Graph Database", icon: "graph", section: "Agentic BI", description: "Inspect FalkorDB", path: "/GraphDatabase" },
 ];
 
 export function pageFromPath(pathname: string): Page {

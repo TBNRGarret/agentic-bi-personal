@@ -210,14 +210,14 @@ def check_clickhouse(v: Verifier) -> None:
 
 def check_airflow(v: Verifier) -> None:
     scheduler = docker_container(r"^agentic-bi_.*-scheduler-[0-9]+$")
-    output = run_command(["docker", "exec", scheduler, "airflow", "dags", "list-runs", "agentic_bi_pipeline", "-o", "json"])
+    output = run_command(["docker", "exec", scheduler, "airflow", "dags", "list-runs", "sync_external_staging_to_dwh", "-o", "json"])
     runs = airflow_json(output)
     if not runs:
-        raise CheckFailed("No agentic_bi_pipeline DAG runs found")
+        raise CheckFailed("No sync_external_staging_to_dwh DAG runs found")
     latest = runs[0]
     if latest.get("state") != "success":
-        raise CheckFailed(f"Latest agentic_bi_pipeline run is {latest.get('state')}: {latest.get('run_id')}")
-    v.ok(f"Latest agentic_bi_pipeline DAG run succeeded: {latest.get('run_id')}")
+        raise CheckFailed(f"Latest sync_external_staging_to_dwh run is {latest.get('state')}: {latest.get('run_id')}")
+    v.ok(f"Latest sync_external_staging_to_dwh DAG run succeeded: {latest.get('run_id')}")
 
 
 def check_dbt_artifacts(v: Verifier) -> None:

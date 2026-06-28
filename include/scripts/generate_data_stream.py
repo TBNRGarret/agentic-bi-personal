@@ -227,7 +227,7 @@ def with_batch(
     record["source_app_id"] = source_app_id
     record["batch_id"] = str(batch_id)
     record["event_time"] = event_time
-    record["processing_time"] = ingested_at.isoformat()
+    record["ingested_at"] = ingested_at.isoformat()
     record_id = (
         record.get("interaction_id")
         or record.get("log_id")
@@ -313,7 +313,7 @@ def generate_records_for_hour(
     batch_id: UUID,
     ingested_at: datetime,
     *,
-    interactions_per_hour: int = 12,
+    interactions_per_hour: int = 35,
     failure_rate: float = 0.08,
 ) -> dict[str, list[dict[str, Any]]]:
     source_app_id = app["source_app_id"]
@@ -439,7 +439,7 @@ def upload_manifest(
 def generate_one_hour(
     *,
     save: bool = False,
-    interactions_per_hour: int = 12,
+    interactions_per_hour: int = 35,
     failure_rate: float = 0.08,
     target_hour: datetime | None = None,
 ) -> dict[str, Any] | None:

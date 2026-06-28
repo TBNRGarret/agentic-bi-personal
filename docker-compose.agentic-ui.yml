@@ -21,6 +21,8 @@ services:
       DATAHUB_GMS_URL: http://datahub-gms:8080
       METABASE_URL: http://metabase:3000
       METABASE_PUBLIC_URL: http://47.131.228.222:3000
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: "6379"
       CORS_ORIGINS: http://47.131.228.222:3003,http://localhost:3003,http://127.0.0.1:3003
       OTEL_SERVICE_NAME: agentic-bi-observation-service
     ports:
@@ -34,6 +36,18 @@ services:
       - agentic-ui
     restart: unless-stopped
 
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: agentic-bi-falkordb
+    ports:
+      - "6380:6379"
+      - "3004:3000"
+    volumes:
+      - falkordb_data:/data
+    networks:
+      - agentic-ui
+    restart: unless-stopped
+
   observation-web:
     build:
       context: ./src/frontend
@@ -44,6 +58,7 @@ services:
       - agentic-ui
     depends_on:
       - observation-service
+      - falkordb
     restart: unless-stopped
 
 networks:
@@ -58,3 +73,6 @@ networks:
     name: datahub_network
   agentic-ui:
     driver: bridge
+
+volumes:
+  falkordb_data:

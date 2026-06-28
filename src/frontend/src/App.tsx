@@ -4,6 +4,7 @@ import { OverviewPanel } from "./components/Dashboard/OverviewPanel";
 import { DataQualityPanel } from "./components/Dashboard/DataQualityPanel";
 import { AiConsolePanel } from "./components/Dashboard/AiConsolePanel";
 import { MetabasePanel } from "./components/Dashboard/MetabasePanel";
+import { GraphDatabasePanel } from "./components/Dashboard/GraphDatabasePanel";
 import { AlertsPanel } from "./components/Dashboard/AlertsPanel";
 import { pageFromPath, pathForPage, type Page } from "./types/navigation";
 import { LoginPage, type AuthUser } from "./components/Auth/LoginPage";
@@ -15,6 +16,7 @@ const PAGE_META: Record<Page, { title: string; subtitle: string }> = {
   "data-quality": { title: "Data Quality",  subtitle: "Latest server quality checks and table-level status" },
   "ai-console":   { title: "AI Console",    subtitle: "Metadata-first monitoring chat and safe SQL console" },
   metabase:       { title: "BI Dashboards", subtitle: "Embedded Metabase analytics dashboards" },
+  "graph-database": { title: "Graph Database", subtitle: "FalkorDB schema graph for QueryWeaver-style retrieval" },
 };
 
 function renderPage(page: Page) {
@@ -24,6 +26,7 @@ function renderPage(page: Page) {
     case "data-quality": return <DataQualityPanel />;
     case "ai-console": return <AiConsolePanel />;
     case "metabase": return <MetabasePanel />;
+    case "graph-database": return <GraphDatabasePanel />;
     default: return <OverviewPanel />;
   }
 }

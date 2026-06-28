@@ -231,6 +231,10 @@ def execute_init_sql(ch_client) -> None:
 def ensure_source_apps(ch_client) -> None:
     """Seed vsf_mart.source_apps with known source applications."""
     ch_client.command("""
+        ALTER TABLE vsf_mart.source_apps DELETE
+        WHERE source_app_id IN ('hoang_ai_chat', 'an_ai_chat', 'tuan_ai_chat', 'bach_ai_chat')
+    """)
+    ch_client.command("""
         INSERT INTO vsf_mart.source_apps
         (source_app_id, source_app_name, domain, environment, owner_team,
          source_dwh_type, source_dwh_name, is_active, created_at, updated_at)
