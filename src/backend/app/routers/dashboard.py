@@ -17,12 +17,16 @@ from ..security import Principal, principal_from_scope
 
 
 OVERVIEW_TABLES = [
-    {"tableName": "gold.gold_llm_usage_daily", "columns": [{"name": "source_app"}]},
-    {"tableName": "gold.gold_trace_health_daily", "columns": [{"name": "source_app"}]},
-    {"tableName": "gold.gold_ingestion_health_daily", "columns": [{"name": "source_app"}]},
+    {"tableName": "vsf_mart.gold_app_daily_cost", "columns": [{"name": "source_app_id"}]},
+    {"tableName": "vsf_mart.fct_llm_interactions", "columns": [{"name": "source_app_id"}]},
+    {"tableName": "vsf_raw.raw_ingestion_batches", "columns": [{"name": "source_app_id"}]},
     {
-        "tableName": "gold.gold_system_observability_daily",
-        "columns": [{"name": "source_app"}, {"name": "service_name"}],
+        "tableName": "vsf_raw.signoz_traces",
+        "columns": [{"name": "source_app_id"}, {"name": "service_name"}],
+    },
+    {
+        "tableName": "vsf_raw.signoz_logs",
+        "columns": [{"name": "source_app_id"}, {"name": "service_name"}],
     },
 ]
 
@@ -42,78 +46,100 @@ def build_router(
         started = perf_counter()
         principal = principal_from_scope(request.scope)
         llm = await _one(clickhouse, """
-            SELECT sum(generation_count) AS generation_count,
+            SELECT sum(request_count) AS generation_count,
                    sum(total_tokens) AS total_tokens,
                    round(sum(total_cost_usd), 6) AS total_cost_usd,
                    sum(error_count) AS llm_errors
-            FROM gold.gold_llm_usage_daily
-            WHERE metric_date >= today() - 30
+            FROM vsf_mart.gold_app_daily_cost
+            WHERE date >= today() - 30
         """, principal)
         traces = await _one(clickhouse, """
-            SELECT sum(trace_count) AS trace_count,
-                   sum(error_count) AS trace_errors,
-                   round(avg(p95_latency_ms), 2) AS p95_latency_ms
-            FROM gold.gold_trace_health_daily
-            WHERE metric_date >= today() - 30
+            SELECT count() AS trace_count,
+                   sum(if(status = 'failed' OR error_log_count > 0, 1, 0)) AS trace_errors,
+                   round(quantile(0.95)(latency_ms), 2) AS p95_latency_ms
+            FROM vsf_mart.fct_llm_interactions
+            WHERE toDate(started_at) >= today() - 30
         """, principal)
         ingestion = await _one(clickhouse, """
-            SELECT sum(batch_count) AS batch_count,
-                   sum(loaded_batch_count) AS loaded_batch_count,
-                   sum(failed_batch_count) AS failed_batch_count,
-                   sum(loaded_row_count) AS loaded_row_count
-            FROM gold.gold_ingestion_health_daily
-            WHERE metric_date >= today() - 30
+            SELECT count() AS batch_count,
+                   countIf(lower(status) IN ('loaded', 'success', 'completed')) AS loaded_batch_count,
+                   countIf(lower(status) IN ('failed', 'error')) AS failed_batch_count,
+                   sum(row_count) AS loaded_row_count
+            FROM vsf_raw.raw_ingestion_batches
+            WHERE toDate(created_at) >= today() - 30
         """, principal)
         services = await _query(clickhouse, """
             SELECT service_name,
                    sum(error_log_count) AS error_log_count,
-                   sum(error_span_count) AS error_span_count,
+                   toUInt64(0) AS error_span_count,
                    round(avg(p95_span_duration_ms), 2) AS p95_span_duration_ms
-            FROM gold.gold_system_observability_daily
+            FROM
+            (
+                SELECT
+                    toDate(timestamp) AS metric_date,
+                    source_app_id,
+                    service_name,
+                    count() AS span_count,
+                    avg(duration_ms) AS avg_span_duration_ms,
+                    quantile(0.95)(duration_ms) AS p95_span_duration_ms
+                FROM vsf_raw.signoz_traces
+                GROUP BY metric_date, source_app_id, service_name
+            ) AS traces
+            LEFT JOIN
+            (
+                SELECT
+                    toDate(timestamp) AS metric_date,
+                    source_app_id,
+                    service_name,
+                    countIf(lower(severity) IN ('error', 'fatal', 'critical')) AS error_log_count
+                FROM vsf_raw.signoz_logs
+                GROUP BY metric_date, source_app_id, service_name
+            ) AS logs
+            USING (metric_date, source_app_id, service_name)
             WHERE metric_date >= today() - 30
             GROUP BY service_name
             ORDER BY error_span_count DESC, error_log_count DESC
             LIMIT 10
         """, principal)
         llm_daily = await _query(clickhouse, """
-            SELECT metric_date,
-                   sum(generation_count) AS generation_count,
+            SELECT date AS metric_date,
+                   sum(request_count) AS generation_count,
                    sum(total_tokens) AS total_tokens,
                    round(sum(total_cost_usd), 6) AS total_cost_usd,
                    sum(error_count) AS error_count
-            FROM gold.gold_llm_usage_daily
-            WHERE metric_date >= today() - 30
+            FROM vsf_mart.gold_app_daily_cost
+            WHERE date >= today() - 30
             GROUP BY metric_date ORDER BY metric_date
         """, principal)
         trace_daily = await _query(clickhouse, """
-            SELECT metric_date,
-                   sum(trace_count) AS trace_count,
-                   sum(success_count) AS success_count,
-                   sum(error_count) AS error_count,
-                   round(avg(p95_latency_ms), 2) AS p95_latency_ms
-            FROM gold.gold_trace_health_daily
-            WHERE metric_date >= today() - 30
+            SELECT toDate(started_at) AS metric_date,
+                   count() AS trace_count,
+                   countIf(lower(status) IN ('success', 'ok', 'completed')) AS success_count,
+                   countIf(lower(status) NOT IN ('success', 'ok', 'completed') OR error_log_count > 0) AS error_count,
+                   round(quantile(0.95)(latency_ms), 2) AS p95_latency_ms
+            FROM vsf_mart.fct_llm_interactions
+            WHERE toDate(started_at) >= today() - 30
             GROUP BY metric_date ORDER BY metric_date
         """, principal)
         ingestion_daily = await _query(clickhouse, """
-            SELECT metric_date,
-                   sum(batch_count) AS batch_count,
-                   sum(loaded_batch_count) AS loaded_batch_count,
-                   sum(failed_batch_count) AS failed_batch_count,
-                   sum(quarantined_batch_count) AS quarantined_batch_count,
-                   sum(loaded_row_count) AS loaded_row_count
-            FROM gold.gold_ingestion_health_daily
-            WHERE metric_date >= today() - 30
+            SELECT toDate(created_at) AS metric_date,
+                   count() AS batch_count,
+                   countIf(lower(status) IN ('loaded', 'success', 'completed')) AS loaded_batch_count,
+                   countIf(lower(status) IN ('failed', 'error')) AS failed_batch_count,
+                   countIf(lower(status) IN ('quarantined', 'quarantine')) AS quarantined_batch_count,
+                   sum(row_count) AS loaded_row_count
+            FROM vsf_raw.raw_ingestion_batches
+            WHERE toDate(created_at) >= today() - 30
             GROUP BY metric_date ORDER BY metric_date
         """, principal)
         model_cost = await _query(clickhouse, """
             SELECT model,
                    sum(total_tokens) AS total_tokens,
                    round(sum(total_cost_usd), 6) AS total_cost_usd,
-                   sum(generation_count) AS generation_count,
+                   sum(request_count) AS generation_count,
                    sum(error_count) AS error_count
-            FROM gold.gold_llm_usage_daily
-            WHERE metric_date >= today() - 30
+            FROM vsf_mart.gold_app_daily_cost
+            WHERE date >= today() - 30
             GROUP BY model
             ORDER BY total_cost_usd DESC, total_tokens DESC
             LIMIT 10

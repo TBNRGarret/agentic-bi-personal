@@ -49,13 +49,6 @@ def apply_row_security(
             continue
         predicates: list[exp.Expression] = []
         alias = table.alias_or_name
-        if qualified == "gold.gold_agent_cost_daily" and "user_id" in columns:
-            predicates.append(
-                exp.EQ(
-                    this=exp.column("user_id", table=alias),
-                    expression=exp.Literal.string(principal.user_id),
-                )
-            )
         if "service_name" in columns:
             predicates.append(
                 _allowed_predicate(
@@ -106,7 +99,7 @@ def visible_tables(
         table
         for table in tables
         if str(table.get("database") or "")
-        in {"gold", "silver", "vsf_mart", "vsf_stg"}
+        in {"vsf_mart", "vsf_raw"}
     ]
 
 

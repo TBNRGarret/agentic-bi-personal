@@ -115,7 +115,7 @@ def clarification_for(plan: dict[str, Any]) -> dict[str, Any] | None:
             "question": "Bạn muốn dùng lớp dữ liệu nào?",
             "options": [
                 _option("Tự động", "layer auto", "Ưu tiên Gold rồi fallback xuống lớp chi tiết."),
-                _option("Tổng hợp", "layer gold", "Dữ liệu Gold/Mart đã tổng hợp."),
+                _option("Tổng hợp", "layer mart", "Dữ liệu Mart đã tổng hợp."),
                 _option("Chi tiết", "layer silver", "Dữ liệu Silver theo event hoặc trace."),
             ],
         },
@@ -256,6 +256,12 @@ def _domain_slot(text: str) -> dict[str, Any]:
                 "chi phi truy van",
                 "agentic bi cost",
                 "agent request",
+                "agent requests",
+                "agent query",
+                "agent queries",
+                "expensive agent",
+                "costly agent",
+                "truy van agent",
                 "chat request",
             ),
         ),
@@ -304,7 +310,7 @@ def _domain_slot(text: str) -> dict[str, Any]:
         ),
         (
             "agent_operations",
-            ("query audit", "agent audit", "dbt run", "request audit"),
+            ("query audit", "agent audit", "agent query", "agent queries", "dbt run", "request audit"),
         ),
         ("data_quality", ("data quality", "dbt test", "chat luong du lieu")),
     )
@@ -318,7 +324,7 @@ def _metric_slot(text: str) -> dict[str, Any]:
     mappings = (
         ("latency", ("latency", "do tre", "cham", "slow", "duration", "p95")),
         ("error", ("error", "loi", "failed", "failure")),
-        ("cost", ("cost", "chi phi", "spend", "usd")),
+        ("cost", ("cost", "chi phi", "spend", "usd", "expensive", "costly", "ton", "dat")),
         ("tokens", ("token", "usage")),
         ("request_count", ("request", "requests", "so request", "query count")),
         ("throughput", ("throughput", "loaded row")),
@@ -504,7 +510,7 @@ def _layer_slot(text: str, target: str) -> dict[str, Any]:
     if any(term in text for term in ("silver", "staging", "event detail", "trace detail")):
         return _slot("silver", 0.94, "explicit")
     if any(term in text for term in ("gold", "mart", "tong hop", "aggregate")):
-        return _slot("gold", 0.94, "explicit")
+        return _slot("mart", 0.94, "explicit")
     if target.lower() in {"dwh", "postgres", "postgresql"}:
         return _slot("auto", 0.7, "target")
     return _slot("auto", 0.55, "default")

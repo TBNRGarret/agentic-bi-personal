@@ -23,7 +23,7 @@ def generate_partitioned_observability_data(
     models: list[str] | None = None,
     seed: int = 42,
 ) -> dict[str, Any]:
-    """Generate mock Gold/Silver data with realistic partition distributions.
+    """Generate mock Mart data with realistic partition distributions.
 
     Args:
         days: Number of days of historical data to generate.
@@ -35,11 +35,11 @@ def generate_partitioned_observability_data(
     Returns:
         Dictionary with table data and partition metadata:
         {
-            "gold.gold_system_observability_daily": [...],
-            "gold.gold_llm_usage_daily": [...],
-            "gold.gold_ingestion_health_daily": [...],
-            "gold.gold_trace_health_daily": [...],
-            "silver.silver_system_traces": [...],
+            "vsf_mart.system_observability_daily": [...],
+            "vsf_mart.llm_usage_daily": [...],
+            "vsf_mart.ingestion_health_daily": [...],
+            "vsf_mart.trace_health_daily": [...],
+            "vsf_mart.system_traces": [...],
             "partition_metadata": { ... },
         }
     """
@@ -51,19 +51,19 @@ def generate_partitioned_observability_data(
     start_date = end_date - timedelta(days=days)
 
     result: dict[str, Any] = {
-        "gold.gold_system_observability_daily": _generate_observability(
+        "vsf_mart.system_observability_daily": _generate_observability(
             start_date, end_date, services, sources, rng
         ),
-        "gold.gold_llm_usage_daily": _generate_llm_usage(
+        "vsf_mart.llm_usage_daily": _generate_llm_usage(
             start_date, end_date, models, sources, rng
         ),
-        "gold.gold_ingestion_health_daily": _generate_ingestion(
+        "vsf_mart.ingestion_health_daily": _generate_ingestion(
             start_date, end_date, sources, rng
         ),
-        "gold.gold_trace_health_daily": _generate_trace_health(
+        "vsf_mart.trace_health_daily": _generate_trace_health(
             start_date, end_date, sources, rng
         ),
-        "silver.silver_system_traces": _generate_silver_traces(
+        "vsf_mart.system_traces": _generate_silver_traces(
             start_date, end_date, services, sources, rng, sample_days=7
         ),
     }
@@ -81,7 +81,7 @@ def _generate_observability(
     sources: list[str],
     rng: random.Random,
 ) -> list[dict[str, Any]]:
-    """Generate gold.gold_system_observability_daily rows."""
+    """Generate vsf_mart.system_observability_daily rows."""
     rows: list[dict[str, Any]] = []
     current = start
     while current <= end:
@@ -135,7 +135,7 @@ def _generate_llm_usage(
     sources: list[str],
     rng: random.Random,
 ) -> list[dict[str, Any]]:
-    """Generate gold.gold_llm_usage_daily rows."""
+    """Generate vsf_mart.llm_usage_daily rows."""
     rows: list[dict[str, Any]] = []
     current = start
 
@@ -193,7 +193,7 @@ def _generate_ingestion(
     sources: list[str],
     rng: random.Random,
 ) -> list[dict[str, Any]]:
-    """Generate gold.gold_ingestion_health_daily rows."""
+    """Generate vsf_mart.ingestion_health_daily rows."""
     rows: list[dict[str, Any]] = []
     current = start
     while current <= end:
@@ -229,7 +229,7 @@ def _generate_trace_health(
     sources: list[str],
     rng: random.Random,
 ) -> list[dict[str, Any]]:
-    """Generate gold.gold_trace_health_daily rows."""
+    """Generate vsf_mart.trace_health_daily rows."""
     rows: list[dict[str, Any]] = []
     current = start
     while current <= end:
@@ -267,7 +267,7 @@ def _generate_silver_traces(
     rng: random.Random,
     sample_days: int = 7,
 ) -> list[dict[str, Any]]:
-    """Generate silver.silver_system_traces rows (sampled, daily partitioned)."""
+    """Generate vsf_mart.system_traces rows (sampled, daily partitioned)."""
     rows: list[dict[str, Any]] = []
     # Only generate for the last N days to keep data volume manageable
     sample_start = max(start, end - timedelta(days=sample_days))
@@ -311,7 +311,7 @@ def _build_partition_metadata(
         if not rows:
             continue
 
-        if table_name.startswith("gold."):
+        if table_name.startswith("vsf_mart."):
             # Monthly partitions for Gold tables
             partition_key = "toYYYYMM(metric_date)"
             partitions = _count_monthly_partitions(rows, "metric_date")

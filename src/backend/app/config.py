@@ -47,7 +47,7 @@ class Settings(BaseModel):
     clickhouse_secure: bool = os.getenv("CLICKHOUSE_SECURE", "false").lower() == "true"
     clickhouse_database: str = os.getenv("CLICKHOUSE_DATABASE", "default")
     clickhouse_analytics_schemas: str = os.getenv(
-        "CLICKHOUSE_ANALYTICS_SCHEMAS", "gold,silver,vsf_mart,vsf_stg"
+        "CLICKHOUSE_ANALYTICS_SCHEMAS", "vsf_mart"
     )
     clickhouse_query_timeout_seconds: float = float(
         os.getenv("CLICKHOUSE_QUERY_TIMEOUT_SECONDS", "60")

@@ -31,9 +31,16 @@ Return shape:
 """
 
 SQL_GENERATION_PROMPT_NOTE = """
-When model2SubQuestions and model2JoinPaths are provided, use them as planning
-scaffolding for the final SQL. They are not user-visible explanations. The final
-SQL still must be one read-only statement using only listed tables and columns.
+When model2SubQuestions, model2JoinPaths, and model2JoinPlan are provided, use
+them as planning scaffolding for the final SQL. The join plan is authoritative
+for multi-table requests: use the listed JOIN conditions, preserve bridge
+tables when present, avoid CROSS JOIN, and split 3+ table joins into CTE-shaped
+subqueries when model2JoinPlan.decompositionHints recommends it. When a join
+condition references fully qualified table names, alias every table in SQL and
+rewrite the condition with those aliases. These hints are
+not user-visible explanations. The final SQL still must be one read-only
+statement using only listed tables and columns, and must not include the JOIN
+hint comment block.
 """
 
 # Version 1.1: Complexity Assessment Prompt for Hybrid Gating

@@ -22,6 +22,7 @@ from ..connectors.clickhouse import ClickHouseConnector
 from ..connectors.datahub import DataHubConnector
 from ..connectors.postgres import PostgresConnector
 from ..security import Principal, principal_from_scope
+from ..observability import current_trace_context
 from ..services.context_manager import ContextManager
 
 
@@ -548,6 +549,19 @@ async def _audit_result(
     result: dict[str, Any],
     principal: Principal | None = None,
 ) -> None:
+    otel_trace_id, otel_span_id = current_trace_context()
+    audit_metadata = {
+        "metadataContext": result.get("metadataContext"),
+        "conversationLength": len(payload.conversation),
+        "model": getattr(payload, "model", "model1"),
+    }
+    if otel_trace_id:
+        audit_metadata["trace_id"] = otel_trace_id
+        audit_metadata["otel_trace_id"] = otel_trace_id
+    if otel_span_id:
+        audit_metadata["span_id"] = otel_span_id
+        audit_metadata["otel_span_id"] = otel_span_id
+
     await postgres.audit(
         {
             "query_id": query_id,
@@ -566,11 +580,7 @@ async def _audit_result(
             if result.get("status") == "error"
             else None,
             "error_message": result.get("error"),
-            "metadata": {
-                "metadataContext": result.get("metadataContext"),
-                "conversationLength": len(payload.conversation),
-                "model": getattr(payload, "model", "model1"),
-            },
+            "metadata": audit_metadata,
             **(_identity(principal) if principal else {}),
         }
     )

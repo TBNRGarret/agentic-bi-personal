@@ -18,7 +18,13 @@ OPS_AUDIT_TABLE = {
     "datasource": "dwh",
     "columns": [
         {"name": "query_id", "type": "text"},
+        {"name": "endpoint", "type": "text"},
+        {"name": "question", "type": "text"},
         {"name": "status", "type": "text"},
+        {"name": "execution_time_ms", "type": "bigint"},
+        {"name": "token_usage", "type": "jsonb"},
+        {"name": "metadata", "type": "jsonb"},
+        {"name": "username", "type": "text"},
         {"name": "created_at", "type": "timestamp"},
         {"name": "error_message", "type": "text"},
     ],
@@ -42,9 +48,9 @@ SERVER_MART_TABLE = {
 }
 
 
-GOLD_OBSERVABILITY_TABLE = {
-    "tableName": "gold.gold_system_observability_daily",
-    "database": "gold",
+MART_OBSERVABILITY_TABLE = {
+    "tableName": "vsf_mart.system_observability_daily",
+    "database": "vsf_mart",
     "datasource": "clickhouse",
     "columns": [
         {"name": "metric_date", "type": "Date"},
@@ -154,6 +160,24 @@ class FakeChartAgent:
         }
 
 
+def test_expensive_agent_queries_use_audit_detail_sql() -> None:
+    sql = _generate_sql(
+        "Show the most expensive agent queries",
+        OPS_AUDIT_TABLE,
+        limit=20,
+        datasource="dwh",
+    )
+
+    assert "FROM ops.agent_query_audit" in sql
+    assert "query_id" in sql
+    assert "trace_id" in sql
+    assert "estimated_cost_usd" in sql
+    assert "token_usage->>'estimatedCostUsd'" in sql
+    assert "ORDER BY estimated_cost_usd DESC" in sql
+    assert "GROUP BY" not in sql
+    assert "metric_date" not in sql
+
+
 def test_dwh_route_uses_postgres_schema_even_when_datahub_is_populated() -> None:
     async def run() -> None:
         settings = Settings(
@@ -195,8 +219,8 @@ def test_table_selector_accepts_and_prefers_server_mart() -> None:
         settings = Settings(table_selector_embedding_enabled=False)
         selector = TableSelector(settings)
         old_gold = {
-            "tableName": "gold.gold_llm_usage_daily",
-            "database": "gold",
+            "tableName": "vsf_mart.llm_usage_daily",
+            "database": "vsf_mart",
             "columns": [
                 {"name": "metric_date"},
                 {"name": "model"},
@@ -224,14 +248,14 @@ def test_table_selector_excludes_disabled_analytics_tables() -> None:
         )
         selection = await TableSelector(settings).select(
             "show request cost trend by source app for 30 days",
-            [GOLD_OBSERVABILITY_TABLE, SERVER_MART_TABLE],
+            [MART_OBSERVABILITY_TABLE, SERVER_MART_TABLE],
             datasource="clickhouse",
             min_tables=1,
             max_tables=2,
         )
 
         assert selection.primary_table is not None
-        assert selection.primary_table["tableName"] == GOLD_OBSERVABILITY_TABLE["tableName"]
+        assert selection.primary_table["tableName"] == MART_OBSERVABILITY_TABLE["tableName"]
         assert all(
             table["tableName"] != SERVER_MART_TABLE["tableName"]
             for table in selection.tables
@@ -240,7 +264,7 @@ def test_table_selector_excludes_disabled_analytics_tables() -> None:
     asyncio.run(run())
 
 
-def test_explicit_staging_request_excludes_curated_layers() -> None:
+def test_explicit_staging_request_stays_on_mart_layer() -> None:
     async def run() -> None:
         settings = Settings(table_selector_embedding_enabled=False)
         selector = TableSelector(settings)
@@ -261,7 +285,7 @@ def test_explicit_staging_request_excludes_curated_layers() -> None:
             min_tables=1,
             max_tables=2,
         )
-        assert [table["database"] for table in selection.tables] == ["vsf_stg"]
+        assert [table["database"] for table in selection.tables] == ["vsf_mart"]
 
     asyncio.run(run())
 
@@ -304,52 +328,40 @@ def test_multi_agent_uses_deterministic_plan_without_llm_planner() -> None:
     asyncio.run(run())
 
 
-def test_log_error_lookup_prefers_silver_log_detail_table() -> None:
+def test_log_error_lookup_stays_on_mart_layer() -> None:
     async def run() -> None:
         settings = Settings(table_selector_embedding_enabled=False)
         selector = TableSelector(settings)
         selection = await selector.select(
             "loi log cua hoang_ai_chat la ve gi vay",
-            [GOLD_OBSERVABILITY_TABLE, SILVER_LOGS_TABLE],
+            [MART_OBSERVABILITY_TABLE, SILVER_LOGS_TABLE],
             datasource="clickhouse",
             min_tables=1,
             max_tables=2,
         )
         assert selection.primary_table is not None
-        assert selection.primary_table["tableName"] == "silver.silver_system_logs"
-        assert selection.candidates[0]["sqlLinkOperation"] == "log_error_detail"
+        assert selection.primary_table["tableName"] == "vsf_mart.system_observability_daily"
 
     asyncio.run(run())
 
 
-def test_log_error_lookup_sql_filters_error_severity_and_source_app() -> None:
+def test_log_error_lookup_sql_uses_mart_observability() -> None:
     sql = _generate_sql(
         "loi log cua hoang_ai_chat la ve gi vay",
-        SILVER_LOGS_TABLE,
+        MART_OBSERVABILITY_TABLE,
         100,
         "clickhouse",
     )
 
-    assert "FROM silver.silver_system_logs" in sql
-    assert "severity" in sql
-    assert "message" in sql
-    assert "lower(severity) IN ('error', 'fatal', 'critical')" in sql
-    assert "positionCaseInsensitiveUTF8(source_app, 'hoang_ai_chat')" in sql
-    assert "positionCaseInsensitiveUTF8(service_name, 'hoang-ai-chat')" in sql
+    assert "FROM vsf_mart.system_observability_daily" in sql
+    assert "service_name" in sql
 
 
 def test_log_error_lookup_rejects_span_only_sql_candidate() -> None:
     assert not _plan_matches_intent(
         "loi log cua hoang_ai_chat la ve gi vay",
         "SELECT source_app, span_count, error_span_count "
-        "FROM gold.gold_system_observability_daily",
-        intent="lookup",
-    )
-    assert _plan_matches_intent(
-        "loi log cua hoang_ai_chat la ve gi vay",
-        "SELECT event_time, severity, message "
-        "FROM silver.silver_system_logs "
-        "WHERE lower(severity) IN ('error', 'fatal', 'critical')",
+        "FROM vsf_mart.system_observability_daily",
         intent="lookup",
     )
 

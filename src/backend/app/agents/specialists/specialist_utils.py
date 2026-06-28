@@ -255,7 +255,7 @@ async def _load_specialist_metadata_tables(
                 getattr(
                     getattr(clickhouse, "settings", None),
                     "clickhouse_analytics_schema_list",
-                    ("gold", "silver", "vsf_mart", "vsf_stg"),
+                    ("vsf_mart",),
                 )
             )
             tables = await describe_tables(configured_schemas)
@@ -268,7 +268,7 @@ async def _load_specialist_metadata_tables(
 
 
 def _clickhouse_metadata_tables(tables: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    allowed_schemas = {"gold", "silver", "vsf_mart", "vsf_stg"}
+    allowed_schemas = {"vsf_mart"}
     return [
         table
         for table in tables
@@ -281,7 +281,7 @@ def _prefer_mart_then_silver(tables: list[dict[str, Any]]) -> list[dict[str, Any
     curated = [
         table
         for table in tables
-        if _table_schema(table) in {"vsf_mart", "gold"}
+        if _table_schema(table) == "vsf_mart"
     ]
     if curated:
         return sorted(
@@ -294,7 +294,7 @@ def _prefer_mart_then_silver(tables: list[dict[str, Any]]) -> list[dict[str, Any
     return [
         table
         for table in tables
-        if _table_schema(table) in {"silver", "vsf_stg"}
+        if _table_schema(table) == "vsf_mart"
     ]
 
 
@@ -367,7 +367,7 @@ async def _clickhouse_query(
             getattr(
                 getattr(connector, "settings", None),
                 "clickhouse_analytics_schema_list",
-                ("gold", "silver", "vsf_mart", "vsf_stg"),
+                ("vsf_mart",),
             )
         )
         tables = await connector.describe_tables(configured_schemas)

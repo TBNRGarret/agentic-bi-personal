@@ -157,8 +157,8 @@ class PartitionAgent:
                     "healthReports": health_reports,
                     "timeRangeDays": days,
                     "strategy": {
-                        "gold": "Monthly partitions by toYYYYMM(metric_date)",
-                        "silver": "Daily partitions by toYYYYMMDD(event_time)",
+                        "vsf_mart": "Monthly partitions by toYYYYMM(metric_date/date)",
+                        
                     },
                 },
             }],
@@ -176,7 +176,7 @@ class PartitionAgent:
                     if tables:
                         return [
                             t for t in tables
-                            if str(t.get("database", "")).lower() in {"gold", "silver", "vsf_mart", "vsf_stg"}
+                            if str(t.get("database", "")).lower() in {"vsf_mart"}
                         ]
                 except Exception:
                     pass
@@ -185,7 +185,7 @@ class PartitionAgent:
             describe_fn = getattr(self.clickhouse, "describe_tables", None)
             if callable(describe_fn):
                 try:
-                    tables = await describe_fn(("gold", "silver"))
+                    tables = await describe_fn(("vsf_mart",))
                     return tables or []
                 except Exception:
                     pass

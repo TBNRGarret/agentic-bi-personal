@@ -70,11 +70,8 @@ def test_non_admin_catalog_includes_server_analytics_layers() -> None:
         {"tableName": "gold.old", "database": "gold"},
         {"tableName": "vsf_mart.current", "database": "vsf_mart"},
         {"tableName": "vsf_stg.detail", "database": "vsf_stg"},
+        {"tableName": "vsf_raw.events", "database": "vsf_raw"},
         {"tableName": "ops.audit", "database": "ops"},
     ]
     visible = visible_tables(tables, principal)
-    assert {table["database"] for table in visible} == {
-        "gold",
-        "vsf_mart",
-        "vsf_stg",
-    }
+    assert {table["database"] for table in visible} == {"vsf_mart", "vsf_raw"}

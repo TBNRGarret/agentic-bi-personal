@@ -45,8 +45,17 @@ class DataHubConnector:
                 live_tables = await self.clickhouse.describe_tables(
                     tuple(self.settings.clickhouse_analytics_schema_list)
                 )
-                merged = {table["tableName"]: table for table in live_tables}
-                merged.update({table["tableName"]: table for table in tables})
+                datahub_by_name = {table["tableName"]: table for table in tables}
+                merged: dict[str, dict[str, Any]] = {}
+                for live_table in live_tables:
+                    name = live_table["tableName"]
+                    datahub_table = datahub_by_name.get(name, {})
+                    metadata = {
+                        key: value
+                        for key, value in datahub_table.items()
+                        if key not in {"columns", "database", "datasource", "name", "tableName"}
+                    }
+                    merged[name] = {**live_table, **metadata}
                 tables = sorted(merged.values(), key=lambda table: table["tableName"])
                 self._cache = tables
                 self._cache_until = monotonic() + 30
@@ -116,7 +125,7 @@ class DataHubConnector:
             if concept_hits:
                 score += len(concept_hits) * 5
                 reasons.append("semantic: " + ", ".join(concept_hits))
-            if str(table.get("database")) in {"gold", "vsf_mart"}:
+            if str(table.get("database")) == "vsf_mart":
                 score += 1.5
                 reasons.append("curated analytics table")
             scored.append((score, table, reasons or ["catalog relevance"]))
@@ -143,6 +152,27 @@ class DataHubConnector:
                 }
             )
         return ranked
+
+    async def list_schema_fields(self, table_name: str) -> list[dict[str, Any]]:
+        """Return column metadata for a DataHub-backed table card.
+
+        Agent 2 treats catalog discovery as a two-step workflow: search for
+        datasets, then explicitly inspect fields before SQL construction. The
+        DataHub GraphQL search response often already includes fields, so this
+        method keeps the contract explicit while reusing the local cache.
+        """
+        normalized = str(table_name or "").strip()
+        if not normalized:
+            return []
+        for table in await self.list_tables():
+            identifiers = {
+                str(table.get("tableName") or ""),
+                str(table.get("name") or ""),
+                str(table.get("urn") or ""),
+            }
+            if normalized in identifiers:
+                return list(table.get("columns") or [])
+        return []
 
     async def _datahub_tables(self) -> list[dict[str, Any]]:
         query = """

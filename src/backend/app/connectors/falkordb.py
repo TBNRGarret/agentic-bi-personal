@@ -328,7 +328,7 @@ def _score_table(question: str, table: dict[str, Any]) -> tuple[float, list[str]
     score = 0.05
     reasons: list[str] = []
     schema = str(table.get("database") or table.get("schema") or "").lower()
-    if schema in {"gold", "vsf_mart"}:
+    if schema == "vsf_mart":
         score += 0.2
         reasons.append("preferred curated layer")
     elif schema in {"silver", "vsf_stg"}:

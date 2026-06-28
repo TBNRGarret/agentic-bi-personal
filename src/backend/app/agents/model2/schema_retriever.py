@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ...config import Settings
+from ...connectors.datahub_lineage import fetch_lineage
 from ...connectors.falkordb import FalkorGraphConnector
 from ..table_selector import TableSelector
 
@@ -71,6 +72,19 @@ class SchemaRetriever:
             )
             metadata_source = "clickhouse_fallback"
 
+        catalog_result = await self._retrieve_from_datahub_catalog(
+            question,
+            datasource=datasource,
+            metadata_source=metadata_source,
+            candidates=candidates,
+            request_plan=request_plan,
+            min_tables=min_tables,
+            max_tables=max_tables,
+            warnings=warnings,
+        )
+        if catalog_result is not None:
+            return catalog_result
+
         graph_result = await self._retrieve_from_falkordb(
             question,
             datasource=datasource,
@@ -104,6 +118,23 @@ class SchemaRetriever:
         if not ranked_tables:
             ranked_tables = selected_tables
 
+        lineage_edges = await self._fetch_datahub_lineage(candidates, warnings)
+        graph_result = self._retrieve_from_memory_graph(
+            question,
+            datasource=datasource,
+            metadata_source=metadata_source,
+            candidates=candidates,
+            selected_tables=selected_tables,
+            ranked_tables=ranked_tables,
+            lineage_edges=lineage_edges,
+            request_plan=request_plan,
+            max_tables=max_tables,
+        )
+        if graph_result is not None:
+            graph_result.table_selection = table_selection or graph_result.table_selection
+            graph_result.warnings = warnings
+            return graph_result
+
         graph_edges = _graph_edges(selected_tables)
         return SchemaRetrievalResult(
             datasource=datasource,
@@ -120,6 +151,189 @@ class SchemaRetriever:
                 "requestPlan": request_plan,
             },
             warnings=warnings,
+        )
+
+
+    async def _retrieve_from_datahub_catalog(
+        self,
+        question: str,
+        *,
+        datasource: str,
+        metadata_source: str,
+        candidates: list[dict[str, Any]],
+        request_plan: dict[str, Any],
+        min_tables: int,
+        max_tables: int,
+        warnings: list[str],
+    ) -> SchemaRetrievalResult | None:
+        if datasource != "clickhouse" or metadata_source == "clickhouse_fallback":
+            return None
+        search_tables = getattr(self.metadata, "relevant_tables", None)
+        if not callable(search_tables):
+            return None
+        try:
+            searched = await search_tables(question, limit=max(max_tables * 3, min_tables))
+        except Exception as exc:
+            warnings.append(f"DataHub catalog search failed: {str(exc)[:180]}")
+            return None
+
+        ranked_tables = tables_for_datasource(searched, datasource)
+        if not ranked_tables:
+            return None
+
+        inspected_tables = await self._inspect_schema_fields(ranked_tables, candidates, warnings)
+        selected_tables = inspected_tables[: max(min_tables, min(max_tables, len(inspected_tables)))]
+        if not selected_tables:
+            return None
+
+        lineage_edges = await self._fetch_datahub_lineage(candidates or inspected_tables, warnings)
+        graph_result = self._retrieve_from_memory_graph(
+            question,
+            datasource=datasource,
+            metadata_source=f"{metadata_source}+datahub_catalog",
+            candidates=candidates or inspected_tables,
+            selected_tables=selected_tables,
+            ranked_tables=inspected_tables,
+            lineage_edges=lineage_edges,
+            request_plan=request_plan,
+            max_tables=max_tables,
+        )
+        retrieval_context = {
+            "strategy": "datahub_mcp_catalog_selector",
+            "workflow": "data_discovery_query_construction",
+            "searchTool": "datahub.search_tables",
+            "schemaInspectionTool": "datahub.list_schema_fields",
+            "candidateCount": len(candidates),
+            "catalogCandidateCount": len(ranked_tables),
+            "selectedCount": len(selected_tables),
+            "inspectedDatasets": [table_name(table) for table in inspected_tables],
+            "requestPlan": request_plan,
+        }
+        table_selection = {
+            "strategy": "datahub_mcp_catalog_selector",
+            "primaryTable": table_name(selected_tables[0]) if selected_tables else None,
+            "selectedTables": [table_name(table) for table in selected_tables],
+            "rankedTables": [table_name(table) for table in inspected_tables],
+            "confidence": float(selected_tables[0].get("retrievalConfidence") or 0.0)
+            if selected_tables
+            else 0.0,
+        }
+        if graph_result is not None:
+            graph_result.metadata_source = f"{metadata_source}+datahub_catalog+memory_graph"
+            graph_result.table_selection = table_selection
+            graph_result.warnings = warnings
+            graph_result.retrieval = {
+                **retrieval_context,
+                "graphStrategy": graph_result.retrieval.get("strategy"),
+                "bridgeTables": graph_result.retrieval.get("bridgeTables", []),
+                "joinPathCount": len(graph_result.join_paths),
+                "graphEdgeCount": len(graph_result.graph_edges),
+                "lineageEdgeCount": len(lineage_edges),
+            }
+            return graph_result
+
+        return SchemaRetrievalResult(
+            datasource=datasource,
+            metadata_source=f"{metadata_source}+datahub_catalog",
+            database_description=_database_description(datasource, selected_tables),
+            tables=selected_tables,
+            ranked_tables=inspected_tables,
+            graph_edges=_graph_edges(selected_tables),
+            table_selection=table_selection,
+            retrieval=retrieval_context,
+            warnings=warnings,
+        )
+
+    async def _inspect_schema_fields(
+        self,
+        ranked_tables: list[dict[str, Any]],
+        candidates: list[dict[str, Any]],
+        warnings: list[str],
+    ) -> list[dict[str, Any]]:
+        by_name = {table_name(table): table for table in candidates}
+        inspect_fields = getattr(self.metadata, "list_schema_fields", None)
+        inspected: list[dict[str, Any]] = []
+        for table in ranked_tables:
+            name = table_name(table)
+            merged = {**by_name.get(name, {}), **table}
+            if not merged.get("columns") and callable(inspect_fields):
+                try:
+                    merged["columns"] = await inspect_fields(str(merged.get("urn") or name))
+                except Exception as exc:
+                    warnings.append(
+                        f"DataHub schema field inspection failed for {name}: {str(exc)[:120]}"
+                    )
+            inspected.append(merged)
+        return inspected
+
+    async def _fetch_datahub_lineage(
+        self,
+        candidates: list[dict[str, Any]],
+        warnings: list[str],
+    ) -> list[dict[str, Any]]:
+        if not candidates or not self.settings.datahub_gms_url:
+            return []
+        datahub_tables = [table for table in candidates if table.get("urn")]
+        if not datahub_tables:
+            return []
+        try:
+            return await fetch_lineage(
+                self.settings.datahub_gms_url,
+                self.settings.datahub_token,
+                datahub_tables,
+                timeout_seconds=min(self.settings.datahub_timeout_seconds, 5.0),
+            )
+        except Exception as exc:
+            warnings.append(f"DataHub lineage retrieval failed: {str(exc)[:180]}")
+            return []
+
+    def _retrieve_from_memory_graph(
+        self,
+        question: str,
+        *,
+        datasource: str,
+        metadata_source: str,
+        candidates: list[dict[str, Any]],
+        selected_tables: list[dict[str, Any]],
+        ranked_tables: list[dict[str, Any]],
+        lineage_edges: list[dict[str, Any]],
+        request_plan: dict[str, Any],
+        max_tables: int,
+    ) -> SchemaRetrievalResult | None:
+        if not candidates or not selected_tables:
+            return None
+        schema_graph = SchemaGraph()
+        schema_graph.build_from_metadata(candidates, lineage=lineage_edges)
+        graph = self.graph_retriever.enhance(
+            question,
+            initial_tables=selected_tables,
+            ranked_tables=ranked_tables or selected_tables,
+            candidates=candidates,
+            schema_graph=schema_graph,
+            max_tables=max_tables,
+        )
+        if not graph.graph_edges and not graph.join_paths:
+            return None
+        graph_tables = graph.tables or selected_tables
+        graph_ranked = graph.ranked_tables or ranked_tables or graph_tables
+        return SchemaRetrievalResult(
+            datasource=datasource,
+            metadata_source=f"{metadata_source}+memory_graph",
+            database_description=_database_description(datasource, graph_tables),
+            tables=graph_tables,
+            ranked_tables=graph_ranked,
+            graph_edges=graph.graph_edges,
+            join_paths=graph.join_paths,
+            retrieval={
+                "strategy": "memory_queryweaver_schema_graph",
+                "candidateCount": len(candidates),
+                "selectedCount": len(graph_tables),
+                "bridgeTables": graph.bridge_tables,
+                "joinPathCount": len(graph.join_paths),
+                "graphEdgeCount": len(graph.graph_edges),
+                "lineageEdgeCount": len(lineage_edges),
+                "requestPlan": request_plan,
+            },
         )
 
     async def _retrieve_from_falkordb(
@@ -214,6 +428,13 @@ def route_datasource(question: str, target: str) -> str:
     operational = (
         "query audit",
         "agent audit",
+        "agent query",
+        "agent queries",
+        "agent request",
+        "agent requests",
+        "expensive agent",
+        "costly agent",
+        "truy van agent",
         "dbt run",
         "dbt test result",
         "ops table",
@@ -237,7 +458,7 @@ def tables_for_datasource(
             if str(table.get("database") or table.get("schema") or "").lower()
             == "ops"
         ]
-    allowed = {"gold", "silver", "vsf_mart", "vsf_stg"}
+    allowed = {"vsf_mart"}
     return [
         table
         for table in tables

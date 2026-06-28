@@ -51,7 +51,11 @@ class ErrorClassifier:
         if any(p in err_lower for p in ("unknown column", "column not found", "does not exist", "no such column", "missing column", "cannot identify column")):
             # Try to extract column name using regex
             # e.g., Unknown column 'foobar' in 'field list' or column "foobar" does not exist
-            match = re.search(r"column\s+['\"]?([a-zA-Z0-9_]+)['\"]?", err, re.IGNORECASE)
+            match = re.search(r"missing\s+column\s*:?\s+['\"]?([a-zA-Z0-9_]+)['\"]?", err, re.IGNORECASE)
+            if not match:
+                match = re.search(r"unknown\s+column\s+['\"]?([a-zA-Z0-9_]+)['\"]?", err, re.IGNORECASE)
+            if not match:
+                match = re.search(r"column\s+['\"]?([a-zA-Z0-9_]+)['\"]?", err, re.IGNORECASE)
             if not match:
                 match = re.search(r"['\"]([a-zA-Z0-9_]+)['\"]", err)
 

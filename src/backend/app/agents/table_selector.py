@@ -267,14 +267,14 @@ def _candidate_layer_tables(
         candidates = [
             table
             for table in tables
-            if _schema_name(table) in {"gold", "silver", "vsf_mart", "vsf_stg"}
+            if _schema_name(table) == "vsf_mart"
         ]
         text = _normalize(question)
         if any(term in text for term in ("gold", "mart", "tong hop", "aggregate")):
             curated = [
                 table
                 for table in candidates
-                if _schema_name(table) in {"gold", "vsf_mart"}
+                if _schema_name(table) == "vsf_mart"
             ]
             return curated or candidates
         if any(
@@ -284,7 +284,7 @@ def _candidate_layer_tables(
             detail = [
                 table
                 for table in candidates
-                if _schema_name(table) in {"silver", "vsf_stg"}
+                if _schema_name(table) == "vsf_mart"
             ]
             return detail or candidates
         return candidates
@@ -508,7 +508,7 @@ def _domain_score(
             else:
                 score -= 35
                 reasons.append("missing log-error detail columns")
-            if schema in {"gold", "vsf_mart"}:
+            if schema == "vsf_mart":
                 score -= 25
                 reasons.append("aggregate layer cannot explain log messages")
         elif _asks_latency_root_cause(text):
@@ -517,12 +517,12 @@ def _domain_score(
                 {"service_name", "source_app", "source_app_id"} & columns
             )
             if has_latency and has_dimension:
-                score += 80 if schema == "gold" else 55
+                score += 80 if schema == "vsf_mart" else 55
                 reasons.append("system slowness maps to observability latency")
             if "llm_usage" in name and not has_dimension:
                 score -= 80
                 reasons.append("LLM usage lacks service/source root-cause dimensions")
-        elif schema in {"gold", "vsf_mart"}:
+        elif schema == "vsf_mart":
             score += 10
             reasons.append("curated analytics table")
         score += _semantic_domain_column_score(text, columns, reasons)
@@ -581,10 +581,6 @@ def _layer_priority(table: dict[str, Any], datasource: str) -> float:
         return 8.0 if schema == "ops" else 4.0
     if schema == "vsf_mart":
         return 11.0
-    if schema == "gold":
-        return 10.0
-    if schema == "silver":
-        return 6.0
     if schema == "vsf_stg":
         return 5.0
     return 0.0

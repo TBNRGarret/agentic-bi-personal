@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from time import perf_counter
 from typing import Any, Callable
 
@@ -16,6 +17,7 @@ from ..request_orchestrator import build_request_plan
 from .decomposer_agent import DecomposerAgent
 from .execution_graph import build_model2_execution_graph
 from .hybrid_selector import HybridSelector
+from .join_planner import JoinPlanner
 from .refiner_agent import RefinerAgent
 from .relevancy_agent import RelevancyAgent
 from .response_formatter import ResponseFormatter
@@ -44,6 +46,7 @@ class HybridText2SQLOrchestrator:
         self.relevancy_agent = RelevancyAgent()
         self.schema_retriever = SchemaRetriever(settings, clickhouse, metadata, postgres)
         self.selector = HybridSelector()
+        self.join_planner = JoinPlanner()
         self.decomposer = DecomposerAgent()
         self.refiner = RefinerAgent()
         self.formatter = ResponseFormatter()
@@ -139,6 +142,41 @@ class HybridText2SQLOrchestrator:
             }
         )
 
+        emit({"type": "stage", "stage": "model2.join_planner", "message": "Planning explicit multi-table join paths"})
+        join_plan = self.join_planner.plan(
+            effective_question,
+            retrieval=retrieval,
+            selector=selector,
+            request_plan=request_plan,
+        )
+        join_paths = [path.to_dict() for path in join_plan.selected_paths] or retrieval.join_paths
+        retrieval.join_paths = join_paths
+        retrieval.retrieval = {**retrieval.retrieval, "joinPlanner": join_plan.to_dict()}
+        for warning in join_plan.warnings:
+            if warning not in retrieval.warnings:
+                retrieval.warnings.append(warning)
+        join_request_plan = {
+            **request_plan,
+            "model2JoinPlan": join_plan.to_dict(),
+            "model2JoinHintBlock": join_plan.hint_block,
+        }
+        if join_plan.hint_block:
+            selector = replace(
+                selector,
+                schema_prompt=f"{join_plan.hint_block}\n\n{selector.schema_prompt}",
+            )
+        emit(
+            {
+                "type": "stage",
+                "stage": "model2.join_planner",
+                "message": (
+                    f"Join planner status={join_plan.status}; "
+                    f"paths={len(join_plan.selected_paths)}; "
+                    f"entities={len(join_plan.entities.entities)}"
+                ),
+            }
+        )
+
         emit({"type": "stage", "stage": "model2.decomposer", "message": "Decomposing request and generating SQL"})
         plan = await self.decomposer.plan(
             effective_question,
@@ -148,10 +186,11 @@ class HybridText2SQLOrchestrator:
             llm=self.llm,
             conversation=conversation or [],
             memory=memory or {},
-            request_plan=request_plan,
-            join_paths=retrieval.join_paths,
+            request_plan=join_request_plan,
+            join_paths=join_paths,
+            join_plan=join_plan.to_dict(),
         )
-        if plan.status != "success" or not plan.sql:
+        if plan.status not in {"success", "fallback"} or not plan.sql:
             return self._error_result(
                 question=question,
                 target=target,
@@ -161,7 +200,7 @@ class HybridText2SQLOrchestrator:
                 error=plan.rationale or "SQL generation failed",
                 started=started,
                 failed_stage="decomposer",
-                request_plan=request_plan,
+                request_plan=join_request_plan,
                 retrieval=retrieval.to_dict(),
                 selector=selector.to_dict(),
                 plan=plan.to_dict(),
@@ -244,7 +283,7 @@ class HybridText2SQLOrchestrator:
                 limit=limit,
                 connector=connector,
                 principal=active_principal,
-                request_plan=request_plan,
+                request_plan=join_request_plan,
                 attempts=attempts,
                 emit=emit,
             )
@@ -260,7 +299,7 @@ class HybridText2SQLOrchestrator:
                 error=last_error,
                 started=started,
                 failed_stage="refiner",
-                request_plan=request_plan,
+                request_plan=join_request_plan,
                 retrieval=retrieval.to_dict(),
                 selector=selector.to_dict(),
                 plan=plan.to_dict(),
@@ -319,7 +358,8 @@ class HybridText2SQLOrchestrator:
             "metadataContext": retrieval.to_dict(),
             "tableSelection": selector.to_dict(),
             "sqlGeneration": plan.to_dict(),
-            "orchestration": request_plan,
+            "orchestration": join_request_plan,
+            "joinPlanning": join_plan.to_dict(),
             "llmSynthesis": formatted.get("llmSynthesis"),
             "llmUsage": usage,
             "workflowGraph": build_model2_workflow_graph(
@@ -406,46 +446,54 @@ class HybridText2SQLOrchestrator:
                 request_plan=request_plan,
                 error_history=error_history,
             )
-            fixed_sql = str(correction.get("sql") or "").strip()
-            if not fixed_sql:
+            repair_candidates = _refiner_sql_candidates(correction)
+            if not repair_candidates:
                 last_error = str(correction.get("error") or "Refiner did not return SQL")
                 continue
-            try:
-                prepared_sql = _prepare_sql_candidate(
-                    fixed_sql,
-                    limit=limit,
-                    datasource=datasource,
-                    tables=selector_tables,
-                    principal=principal,
-                )
-                emit({"type": "sql", "sql": prepared_sql, "intent": _intent(question), "datasource": datasource})
-                rows = await connector.query(prepared_sql)
-                attempts.append(
-                    {
-                        "attempt": len(attempts) + 1,
-                        "phase": "refinement",
-                        "correction": retry + 1,
-                        "sql": prepared_sql,
-                        "status": "success",
-                        "rowCount": len(rows),
-                        "errorClassification": correction.get("errorClassification"),
-                    }
-                )
-                return prepared_sql, rows, ""
-            except Exception as exc:
-                last_sql = fixed_sql
-                last_error = str(exc)
-                attempts.append(
-                    {
-                        "attempt": len(attempts) + 1,
-                        "phase": "refinement",
-                        "correction": retry + 1,
-                        "sql": fixed_sql,
-                        "status": "error",
-                        "error": last_error,
-                        "errorClassification": correction.get("errorClassification"),
-                    }
-                )
+            for candidate_index, repair_candidate in enumerate(repair_candidates):
+                fixed_sql = str(repair_candidate.get("sql") or "").strip()
+                if not fixed_sql:
+                    continue
+                try:
+                    prepared_sql = _prepare_sql_candidate(
+                        fixed_sql,
+                        limit=limit,
+                        datasource=datasource,
+                        tables=selector_tables,
+                        principal=principal,
+                    )
+                    emit({"type": "sql", "sql": prepared_sql, "intent": _intent(question), "datasource": datasource})
+                    rows = await connector.query(prepared_sql)
+                    attempts.append(
+                        {
+                            "attempt": len(attempts) + 1,
+                            "phase": "refinement",
+                            "correction": retry + 1,
+                            "candidate": candidate_index + 1,
+                            "repairStrategy": repair_candidate.get("strategy") or correction.get("repairStrategy"),
+                            "sql": prepared_sql,
+                            "status": "success",
+                            "rowCount": len(rows),
+                            "errorClassification": correction.get("errorClassification"),
+                        }
+                    )
+                    return prepared_sql, rows, ""
+                except Exception as exc:
+                    last_sql = fixed_sql
+                    last_error = str(exc)
+                    attempts.append(
+                        {
+                            "attempt": len(attempts) + 1,
+                            "phase": "refinement",
+                            "correction": retry + 1,
+                            "candidate": candidate_index + 1,
+                            "repairStrategy": repair_candidate.get("strategy") or correction.get("repairStrategy"),
+                            "sql": fixed_sql,
+                            "status": "error",
+                            "error": last_error,
+                            "errorClassification": correction.get("errorClassification"),
+                        }
+                    )
         return last_sql, [], last_error
 
     def _early_result(
@@ -536,6 +584,30 @@ class HybridText2SQLOrchestrator:
                 failed_stage=failed_stage,
             ),
         }
+
+
+def _refiner_sql_candidates(correction: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_candidates = [
+        candidate
+        for candidate in correction.get("candidates", [])
+        if isinstance(candidate, dict) and str(candidate.get("sql") or "").strip()
+    ]
+    selected_sql = str(correction.get("sql") or "").strip()
+    candidates: list[dict[str, Any]] = []
+    if selected_sql:
+        selected = next(
+            (
+                candidate
+                for candidate in raw_candidates
+                if str(candidate.get("sql") or "").strip() == selected_sql
+            ),
+            {"sql": selected_sql, "strategy": correction.get("repairStrategy") or "refiner_sql"},
+        )
+        candidates.append(selected)
+    for candidate in raw_candidates:
+        if all(str(existing.get("sql") or "").strip() != str(candidate.get("sql") or "").strip() for existing in candidates):
+            candidates.append(candidate)
+    return candidates
 
 
 def _merge_usage(*parts: dict[str, Any]) -> dict[str, Any]:

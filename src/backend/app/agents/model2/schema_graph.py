@@ -406,7 +406,7 @@ def _unique_existing(
 def _table_match_text(name: str) -> str:
     parts = name.lower().split(".")
     compact = parts[-1] if parts else name.lower()
-    for prefix in ("dim_", "fct_", "fact_", "gold_", "silver_", "staging_", "stg_"):
+    for prefix in ("dim_", "fct_", "fact_", "mart_", "silver_", "staging_", "stg_"):
         if compact.startswith(prefix):
             compact = compact[len(prefix) :]
     return compact

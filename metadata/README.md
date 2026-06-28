@@ -80,6 +80,54 @@ columns = client.get_columns(tables[0]["urn"])
 context = client.get_schema_context_for_question("Total tokens per model?")
 ```
 
+## MCP Server (cho Agent/IDE)
+
+DataHub MCP server expose metadata tools ổn định cho agent:
+
+- `datahub_health`
+- `search_tables`
+- `get_table_schema`
+- `get_lineage`
+- `get_freshness`
+- `get_table_context_for_question`
+
+### Cấu hình môi trường
+
+```bash
+export DATAHUB_GMS_URL=http://localhost:28080
+export DATAHUB_TOKEN=
+export DATAHUB_MCP_DEFAULT_PLATFORM=clickhouse
+export DATAHUB_MCP_DEFAULT_SCHEMA=vsf_mart
+export DATAHUB_MCP_MAX_TABLES=5
+export DATAHUB_MCP_MAX_COLUMNS=80
+```
+
+### Chạy qua stdio
+
+```bash
+python -m metadata.mcp_server
+```
+
+Ví dụ cấu hình MCP client:
+
+```json
+{
+  "mcpServers": {
+    "agentic-bi-datahub": {
+      "command": "python",
+      "args": ["-m", "metadata.mcp_server"],
+      "env": {
+        "DATAHUB_GMS_URL": "http://localhost:28080",
+        "DATAHUB_MCP_DEFAULT_SCHEMA": "vsf_mart"
+      }
+    }
+  }
+}
+```
+
+Production note: ưu tiên stdio cho desktop/IDE agents. Chỉ dùng `DATAHUB_MCP_TRANSPORT=sse`
+khi cần remote MCP client, và đặt sau auth/network boundary nội bộ.
+
 ## JVM Tuning cho VPS 16GB
 
 | Component | Heap Size | Biến môi trường |

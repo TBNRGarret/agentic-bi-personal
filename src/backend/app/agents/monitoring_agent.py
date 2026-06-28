@@ -887,100 +887,20 @@ async def _expand_empty_llm_usage_result(
     event_sink: EventSink | None = None,
 ) -> dict[str, Any]:
     emit = event_sink or (lambda _: None)
-    trace: list[dict[str, Any]] = []
-    attempts: list[dict[str, Any]] = []
     emit(
         {
             "type": "stage",
             "stage": "fallback",
-            "message": "Gold returned no rows; searching the Silver detail layer",
+            "message": "Mart query returned no rows; legacy silver fallback is disabled.",
         }
     )
-    silver_table = next(
-        (
-            table
-            for table in planning_tables
-            if str(table.get("tableName") or "")
-            == "silver.silver_llm_generations"
-        ),
-        None,
-    )
-    if silver_table is None:
-        silver_tables = await clickhouse.describe_tables(("silver",))
-        silver_table = next(
-            (
-                table
-                for table in silver_tables
-                if str(table.get("tableName") or "")
-                == "silver.silver_llm_generations"
-            ),
-            None,
-        )
-        if silver_table:
-            planning_tables = _append_unique_table(planning_tables, silver_table)
-    if silver_table:
-        silver_sql = _llm_usage_sql(question, silver_table, limit)
-        try:
-            candidate = _prepare_sql_candidate(
-                silver_sql,
-                limit=limit,
-                datasource="clickhouse",
-                tables=planning_tables,
-                principal=principal,
-            )
-            silver_rows = await clickhouse.query(candidate)
-            emit(
-                {
-                    "type": "stage",
-                    "stage": "fallback",
-                    "message": (
-                        "Silver search returned "
-                        f"{len(silver_rows)} row(s) from {silver_table['tableName']}"
-                    ),
-                }
-            )
-            attempts.append(
-                {
-                    "attempt": 0,
-                    "phase": "empty_result_fallback",
-                    "layer": "silver",
-                    "sql": candidate,
-                    "status": "success",
-                    "rowCount": len(silver_rows),
-                }
-            )
-            trace.append(
-                {
-                    "layer": "silver",
-                    "table": silver_table["tableName"],
-                    "rowCount": len(silver_rows),
-                }
-            )
-            if silver_rows:
-                return {
-                    "found": True,
-                    "sql": candidate,
-                    "rows": silver_rows,
-                    "table": silver_table,
-                    "trace": trace,
-                    "attempts": attempts,
-                }
-        except Exception as exc:
-            trace.append(
-                {
-                    "layer": "silver",
-                    "table": silver_table["tableName"],
-                    "error": str(exc),
-                }
-            )
-
     return {
         "found": False,
         "sql": "",
         "rows": [],
-        "table": {},
-        "trace": trace,
-        "attempts": attempts,
+        "table": None,
+        "trace": [{"layer": "vsf_mart", "rowCount": 0}],
+        "attempts": [],
     }
 
 
@@ -1062,6 +982,13 @@ def _route_datasource(question: str, target: str) -> str:
     operational = (
         "query audit",
         "agent audit",
+        "agent query",
+        "agent queries",
+        "agent request",
+        "agent requests",
+        "expensive agent",
+        "costly agent",
+        "truy van agent",
         "dbt run",
         "dbt test result",
         "ops table",
@@ -1088,7 +1015,7 @@ def _tables_for_datasource(
         table
         for table in tables
         if str(table.get("database") or table.get("schema") or "").lower()
-        in {"gold", "silver", "vsf_mart", "vsf_stg"}
+        in {"vsf_mart"}
     ]
 
 
@@ -1160,7 +1087,7 @@ def _rank_tables(
                     "source_app_id",
                 } & columns
                 if has_latency and dimensions:
-                    score += 70 if schema in {"gold", "vsf_mart"} else 50
+                    score += 70 if schema == "vsf_mart" else 50
                     reasons.append(
                         "latency root-cause analysis needs a service/source dimension"
                     )
@@ -1178,9 +1105,9 @@ def _rank_tables(
                 } <= columns:
                     score += 60
                     reasons.append("error-span detail supports conditional latency")
-                if schema in {"gold", "vsf_mart"}:
+                if schema == "vsf_mart":
                     score -= 10
-            elif schema in {"gold", "vsf_mart"}:
+            elif schema == "vsf_mart":
                 score += 10
                 reasons.append("curated analytics aggregate")
             score += _semantic_domain_column_score(text, columns, reasons)
@@ -1826,6 +1753,10 @@ def _generate_postgres_sql(
 ) -> str:
     name = str(table["tableName"])
     columns = {str(column.get("name")) for column in table.get("columns") or []}
+    text = _normalize(question)
+    if name == "ops.agent_query_audit" and _asks_expensive_agent_queries(text, columns):
+        return _expensive_agent_queries_sql(name, columns, limit, _window_days(text))
+
     projection_preferences = (
         "run_id",
         "query_id",
@@ -1850,12 +1781,69 @@ def _generate_postgres_sql(
         None,
     )
     sql = f"SELECT {', '.join(projection)} FROM {name}"
-    text = _normalize(question)
     if "failed" in text and "status" in columns:
         sql += " WHERE lower(status) IN ('failed', 'error')"
     if order_column:
         sql += f" ORDER BY {order_column} DESC"
     return f"{sql} LIMIT {min(limit, 100)}"
+
+
+def _asks_expensive_agent_queries(text: str, columns: set[str]) -> bool:
+    has_audit_shape = {"query_id", "question", "token_usage", "created_at"} <= columns
+    if not has_audit_shape:
+        return False
+    cost_terms = ("expensive", "cost", "costly", "ton", "tốn", "dat", "đắt")
+    query_terms = ("agent query", "agent queries", "query audit", "queries", "truy van", "truy vấn")
+    return any(term in text for term in cost_terms) and any(term in text for term in query_terms)
+
+
+def _expensive_agent_queries_sql(
+    table_name: str,
+    columns: set[str],
+    limit: int,
+    days: int,
+) -> str:
+    trace_expr = "NULL::text AS trace_id"
+    span_expr = "NULL::text AS span_id"
+    if "metadata" in columns:
+        trace_expr = (
+            "COALESCE(metadata->>'trace_id', metadata->>'otel_trace_id', "
+            "metadata->>'langfuse_trace_id') AS trace_id"
+        )
+        span_expr = "COALESCE(metadata->>'span_id', metadata->>'otel_span_id') AS span_id"
+    model_expr = "NULL::text AS model"
+    total_tokens_expr = "0::bigint AS total_tokens"
+    cost_expr = "0::numeric AS estimated_cost_usd"
+    if "token_usage" in columns:
+        model_expr = "NULLIF(token_usage->>'model', '') AS model"
+        total_tokens_expr = "COALESCE((token_usage->>'totalTokens')::bigint, 0) AS total_tokens"
+        cost_expr = (
+            "round(COALESCE((token_usage->>'estimatedCostUsd')::numeric, 0), 8) "
+            "AS estimated_cost_usd"
+        )
+    projection = [
+        "query_id",
+        trace_expr,
+        span_expr,
+        "created_at",
+        "username" if "username" in columns else "NULL::text AS username",
+        "endpoint" if "endpoint" in columns else "NULL::text AS endpoint",
+        "status" if "status" in columns else "NULL::text AS status",
+        model_expr,
+        total_tokens_expr,
+        cost_expr,
+        "execution_time_ms" if "execution_time_ms" in columns else "NULL::bigint AS execution_time_ms",
+        "left(question, 240) AS question" if "question" in columns else "NULL::text AS question",
+    ]
+    where = [f"created_at >= CURRENT_DATE - {max(1, min(days, 365))}"]
+    if "token_usage" in columns:
+        where.append("token_usage <> '{}'::jsonb")
+    return (
+        f"SELECT {', '.join(projection)} FROM {table_name} "
+        f"WHERE {' AND '.join(where)} "
+        "ORDER BY estimated_cost_usd DESC, total_tokens DESC, created_at DESC "
+        f"LIMIT {min(limit, 100)}"
+    )
 
 
 def _llm_cost_sql(
@@ -2351,12 +2339,6 @@ def _plan_matches_intent(
         if not any(term in normalized for term in ("silver_system_logs", "signoz_logs")):
             return False
     capabilities = set(_question_capabilities(question))
-    if (
-        "cost" in capabilities
-        and not _asks_agent_cost(text)
-        and "gold.gold_agent_cost_daily" in normalized
-    ):
-        return False
     if "cost" in capabilities and not any(
         term in normalized
         for term in ("cost_usd", "total_cost_usd", "estimated_cost_usd")

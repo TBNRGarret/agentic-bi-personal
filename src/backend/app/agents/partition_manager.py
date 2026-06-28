@@ -58,10 +58,7 @@ class PartitionHealthReport:
 
 # Default partition strategies for DataHub-published ClickHouse analytics schemas.
 _PARTITION_STRATEGIES: dict[str, dict[str, str]] = {
-    "gold": {"key": "metric_date", "expression": "toYYYYMM(metric_date)", "type": "monthly"},
     "vsf_mart": {"key": "date", "expression": "toYYYYMM(date)", "type": "monthly"},
-    "silver": {"key": "event_time", "expression": "toYYYYMMDD(event_time)", "type": "daily"},
-    "vsf_stg": {"key": "started_at", "expression": "toYYYYMMDD(started_at)", "type": "daily"},
 }
 
 # Known time columns for auto-detection

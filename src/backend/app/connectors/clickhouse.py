@@ -66,7 +66,7 @@ class ClickHouseConnector:
         ]
 
     async def describe_tables(
-        self, schemas: tuple[str, ...] = ("gold", "silver")
+        self, schemas: tuple[str, ...] = ("vsf_mart",)
     ) -> list[dict[str, Any]]:
         schema_values = ", ".join(f"'{schema}'" for schema in schemas)
         rows = await self.query(

@@ -133,6 +133,153 @@ class LlmService:
                 "error": _safe_error(exc),
             }
 
+    async def solve_sub_question(
+        self,
+        *,
+        sub_question: dict[str, Any],
+        question: str,
+        tables: list[dict[str, Any]],
+        datasource: str,
+        limit: int,
+        previous_sql: str | None = None,
+        request_plan: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """MAC-SQL step-by-step solver phase for a specific sub-question."""
+        enriched_plan = {
+            **(request_plan or {}),
+            "macSqlCurrentSubQuestion": sub_question,
+            "macSqlPreviousSql": previous_sql,
+            "macSqlInstruction": f"Solve sub-question: {sub_question.get('question')}. Build upon previous SQL if present.",
+        }
+        return await self._sql_plan(
+            question=f"{question} (Focus on sub-question: {sub_question.get('question')})",
+            tables=tables,
+            datasource=datasource,
+            limit=limit,
+            candidate_count=1,
+            request_plan=enriched_plan,
+        )
+
+    async def refine_decomposed_sql(
+        self,
+        *,
+        question: str,
+        accumulated_sql: str,
+        tables: list[dict[str, Any]],
+        datasource: str,
+        limit: int,
+        conversation: list[dict[str, Any]] | None = None,
+        memory: dict[str, Any] | None = None,
+        candidate_count: int = 2,
+        request_plan: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """MAC-SQL refiner/synthesizer phase to verify and optimize accumulated step-by-step SQL."""
+        enriched_plan = {
+            **(request_plan or {}),
+            "macSqlAccumulatedSql": accumulated_sql,
+            "macSqlInstruction": "Refine, verify against schema, and synthesize final pristine SQL and visualization plan.",
+        }
+        return await self._sql_plan(
+            question=question,
+            tables=tables,
+            datasource=datasource,
+            limit=limit,
+            conversation=conversation,
+            memory=memory,
+            candidate_count=candidate_count,
+            request_plan=enriched_plan,
+        )
+
+    async def smart_repair_sql(
+        self,
+        *,
+        question: str,
+        failed_sql: str,
+        heuristic_sql: str,
+        database_error: str,
+        error_category: str,
+        suggested_fix: str,
+        strategy_hint: str,
+        tables: list[dict[str, Any]],
+        datasource: str,
+        limit: int,
+        request_plan: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Dedicated smart LLM repair strategy for SQL self-correction."""
+        if not self.settings.llm_configured:
+            return {
+                "status": "disabled",
+                "provider": self.settings.llm_provider,
+                "model": self.settings.llm_model,
+                "fallbackReason": "LLM API key is not configured.",
+            }
+
+        dialect = "ClickHouse SQL" if datasource == "clickhouse" else "PostgreSQL SQL"
+        system_prompt = (
+            f"You are an expert database healer and SQL refiner for {dialect}. "
+            "Your task is to repair a failed SQL query that produced a database error. "
+            "Return JSON only with keys sql, candidates, selectedTables, rationale, visualization. "
+            "visualization must be an object with type, x, y, series, title, rationale. "
+            "Put the fully repaired, correct SQL in sql, and provide up to 2 candidates with sql and rationale. "
+            "Carefully analyze the database error, the error category, the suggested fix, and the strategy hint. "
+            "Examine the live table schemas provided in the context to verify every table and column name. "
+            "Ensure all non-aggregated columns are included in GROUP BY, ensure correct explicit type casting, "
+            "and verify that all tables are fully qualified. Never use SELECT *, comments, DDL, DML, or multiple statements. "
+            "Keep the result bounded by the requested limit."
+        )
+        context: dict[str, Any] = {
+            "question": question,
+            "datasource": datasource,
+            "limit": limit,
+            "failedSql": failed_sql,
+            "heuristicSql": heuristic_sql,
+            "databaseError": database_error,
+            "errorCategory": error_category,
+            "suggestedFix": suggested_fix,
+            "strategyHint": strategy_hint,
+            "tables": [_compact_table(table) for table in tables[:8]],
+            "structuredRequest": request_plan or {},
+        }
+        try:
+            response = await self._complete(
+                system_prompt,
+                json.dumps(context, ensure_ascii=False, default=str)[:20000],
+                timeout_seconds=self.settings.llm_sql_timeout_seconds,
+                max_retries=self.settings.llm_sql_max_retries,
+            )
+            plan = _parse_json_object(response.content)
+            sql = str(plan.get("sql") or "").strip()
+            candidates = _parse_sql_candidates(plan, sql)
+            if not sql:
+                sql = candidates[0]["sql"] if candidates else ""
+            if not sql:
+                raise ValueError("LLM smart repair plan did not contain sql")
+            return {
+                "status": "success",
+                "provider": self.settings.llm_provider,
+                "model": self.settings.llm_model,
+                "sql": sql,
+                "candidates": candidates[:2],
+                "selectedTables": plan.get("selectedTables") or [],
+                "rationale": str(plan.get("rationale") or "Smart SQL repair completed successfully"),
+                "visualization": _parse_visualization_plan(plan.get("visualization")),
+                "usage": {
+                    "prompt_tokens": response.prompt_tokens,
+                    "completion_tokens": response.completion_tokens,
+                    "total_tokens": response.prompt_tokens + response.completion_tokens,
+                },
+                "latencyMs": response.latency_ms,
+                "totalCostUsd": response.estimated_cost_usd,
+                "costSource": response.cost_source,
+            }
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "provider": self.settings.llm_provider,
+                "model": self.settings.llm_model,
+                "error": _safe_error(exc),
+            }
+
     async def assess_complexity(
         self,
         *,
@@ -776,7 +923,7 @@ class LlmService:
             "only says request(s) without a domain, leave domain null and set metric "
             "to request_count so the orchestrator can ask a clarification instead "
             "of guessing a table. metric may be a string or array; include "
-            "request_count for request volume questions. layer is gold, silver, raw, or auto. "
+            "request_count for request volume questions. layer is mart, staging, raw, or auto. "
             "dimensions is an array chosen from time, model, source_app, service_name, "
             "provider, environment, status, user. Extract every grouping/grain explicitly "
             "requested, including repeated Vietnamese forms such as 'từng/theo'. "
