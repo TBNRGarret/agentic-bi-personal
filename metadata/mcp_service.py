@@ -134,18 +134,10 @@ class DataHubMCPService:
     ) -> dict[str, Any]:
         """Return table cards plus bounded columns for SQL planning."""
         search = self.search_tables(question=question, schema=schema, platform=platform, limit=limit)
-        enriched_tables = []
-        for table in search["tables"]:
-            schema_payload = self.get_table_schema(table["urn"], include_freshness=True)
-            enriched = {
-                **table,
-                "columns": schema_payload["columns"],
-                "column_count": schema_payload["column_count"],
-                "freshness": schema_payload.get("freshness", {}),
-            }
-            if include_lineage:
-                enriched["lineage"] = self.get_lineage(table["urn"])
-            enriched_tables.append(enriched)
+        enriched_tables = [
+            self._table_context_card(table, include_lineage=include_lineage)
+            for table in search["tables"]
+        ]
         return {
             "question": question,
             "platform": platform,
@@ -165,6 +157,18 @@ class DataHubMCPService:
             "tags": table.get("tags", []),
             "partition_info": table.get("partition_info"),
         }
+
+    def _table_context_card(self, table: dict[str, Any], *, include_lineage: bool) -> dict[str, Any]:
+        schema_payload = self.get_table_schema(table["urn"], include_freshness=True)
+        enriched = {
+            **table,
+            "columns": schema_payload["columns"],
+            "column_count": schema_payload["column_count"],
+            "freshness": schema_payload.get("freshness", {}),
+        }
+        if include_lineage:
+            enriched["lineage"] = self.get_lineage(table["urn"])
+        return enriched
 
 
 def build_service() -> DataHubMCPService:

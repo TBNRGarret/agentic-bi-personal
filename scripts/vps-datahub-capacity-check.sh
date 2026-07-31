@@ -5,14 +5,19 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose-datahub.yml}"
-ENV_FILE="${ENV_FILE:-.env.datahub-vps}"
+ENV_FILE="${ENV_FILE:-.env}"
 PROJECT_NAME="${PROJECT_NAME:-datahub-vps}"
 HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-420}"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "[FAIL] Missing $ENV_FILE."
-  echo "       Copy .env.datahub-vps.example to .env.datahub-vps and replace the change-me secrets."
-  exit 1
+  if [[ -f .env.example ]]; then
+    cp .env.example "$ENV_FILE"
+    echo "[INFO] Created $ENV_FILE from .env.example. Review and replace secrets before exposing DataHub."
+  else
+    echo "       Create .env.example first, then copy it to .env."
+    exit 1
+  fi
 fi
 
 env_value() {

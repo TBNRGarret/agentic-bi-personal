@@ -7,7 +7,7 @@ services:
       dockerfile: src/backend/Dockerfile
     container_name: agentic-bi-observation-service
     env_file:
-      - .env.agentic-ui
+      - .env
     environment:
       OBSERVATION_ENVIRONMENT: server
       OBSERVATION_REPO_ROOT: /workspace

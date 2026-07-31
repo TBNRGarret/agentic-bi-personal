@@ -5,12 +5,12 @@ $Root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
 Push-Location $Root
 
 try {
-    if (-not (Test-Path ".env.datahub-vps")) {
-        Copy-Item ".env.datahub-vps.example" ".env.datahub-vps"
-        Write-Host "[INFO] Created .env.datahub-vps from example for local DataHub defaults." -ForegroundColor Yellow
+    if (-not (Test-Path ".env")) {
+        Copy-Item ".env.example" ".env"
+        Write-Host "[INFO] Created .env from example for local shared defaults." -ForegroundColor Yellow
     }
 
-    docker compose --env-file .env.datahub-vps -f docker-compose-datahub.yml -p datahub-vps up -d
+    docker compose --env-file .env -f docker-compose-datahub.yml -p datahub-vps up -d
     if ($LASTEXITCODE -ne 0) { throw "DataHub docker compose start failed." }
 
     Write-Host "[WAIT] Waiting for DataHub GMS at http://localhost:28080/health..." -ForegroundColor Cyan

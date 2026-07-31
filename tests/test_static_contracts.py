@@ -30,22 +30,17 @@ def test_ingestion_loads_vsf_raw_batches_from_minio():
 
 def test_pipeline_uses_vsf_databases_instead_of_legacy_names():
     dag = read("dags/agentic_bi_pipeline.py")
-    dbt_project = read("include/dbt_project/dbt_project.yml")
-    profiles = read("include/dbt_project/profiles.yml")
-    sources = read("include/dbt_project/models/sources.yml")
+    env_template = read(".env.example")
 
     for schema in ("vsf_raw", "vsf_stg", "vsf_mart"):
         assert schema in dag
 
-    assert "schema: \"{{ env_var('AGENTIC_DBT_SCHEMA', 'vsf_mart') }}\"" in profiles
-    assert "+schema: vsf_stg" in dbt_project
-    assert "+schema: vsf_mart" in dbt_project
-    assert "database: vsf_raw" in sources
-    assert "database: raw" not in sources
+    assert "CLICKHOUSE_ANALYTICS_SCHEMAS=vsf_mart" in env_template
+    assert "DATAHUB_MCP_DEFAULT_SCHEMA=vsf_mart" in env_template
 
 
 def test_compose_defines_minio_object_store():
-    compose = read("docker-compose.override.yml")
+    compose = read("docker-compose.yml")
 
     assert "  minio:" in compose
     assert "minio/minio:" in compose
@@ -111,9 +106,12 @@ def test_airflow_ui_url_is_discovered_from_published_container_port():
 
 
 def test_dbt_config_does_not_reference_missing_bronze_models():
-    dbt_project = read("include/dbt_project/dbt_project.yml")
+    guide = read("docs/PROJECT_GUIDE.md")
 
-    assert "bronze:" not in dbt_project
+    assert "bronze" not in guide
+    assert "vsf_raw" in guide
+    assert "vsf_stg" in guide
+    assert "vsf_mart" in guide
 
 
 def test_generated_artifacts_are_ignored():
@@ -154,7 +152,7 @@ def test_datahub_vps_compose_defines_pinned_resource_limited_stack():
 
 
 def test_datahub_vps_env_template_documents_required_runtime_values():
-    env_template = read(".env.datahub-vps.example")
+    env_template = read(".env.example")
 
     for key in (
         "DATAHUB_VERSION=v1.4.0",
@@ -195,19 +193,18 @@ def test_datahub_vps_monitoring_scripts_capture_memory_and_crash_evidence():
 
 
 def test_datahub_test_plan_points_to_runnable_vps_artifacts():
-    plan = read("docs/DATAHUB_TEST_PLAN.md")
+    compose = read("docker-compose-datahub.yml")
+    capacity_check = read("scripts/vps-datahub-capacity-check.sh")
+    monitor = read("scripts/vps-datahub-monitor.sh")
+    guide = read("docs/PROJECT_GUIDE.md")
 
-    for expected in (
-        "docker-compose-datahub.yml",
-        ".env.datahub-vps.example",
-        "scripts/vps-datahub-capacity-check.sh",
-        "scripts/vps-datahub-monitor.sh",
-        "docker compose --env-file .env.datahub-vps -f docker-compose-datahub.yml -p datahub-vps up -d",
-        "docker stats --no-stream",
-        "free -m",
-        "vm.max_map_count",
-    ):
-        assert expected in plan
+    assert "--env-file .env" in compose
+    assert "ENV_FILE=\"${ENV_FILE:-.env}\"" in capacity_check
+    assert "ENV_FILE=\"${ENV_FILE:-.env}\"" in monitor
+    assert "docker stats --no-stream" in monitor
+    assert "free -m" in monitor
+    assert "vm.max_map_count" in capacity_check
+    assert "DataHub-only stack" in guide
 
 
 def test_seed_uses_worker_compatible_watermark_names():

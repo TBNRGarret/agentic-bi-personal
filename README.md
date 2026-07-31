@@ -10,7 +10,7 @@
 
 ## Central DWH Local Runbook
 
-The current data-foundation slice follows `docs/dwh-design-proposal.md`:
+The current data-foundation slice is summarized in `docs/PROJECT_GUIDE.md`:
 
 ```text
 Sprint 1 Postgres DWH
@@ -55,9 +55,8 @@ curl http://localhost:18000/health
 curl http://localhost:18000/chat -H "content-type: application/json" -d "{\"message\":\"kiểm tra git status\"}"
 ```
 
-Telemetry env is documented in `.env.observation.example`: Langfuse keys enable
-generation traces, and `OTEL_EXPORTER_OTLP_ENDPOINT` sends OpenTelemetry traces
-to SigNoz.
+Telemetry env is documented in `.env.example`: Langfuse keys enable generation
+traces, and `OTEL_EXPORTER_OTLP_ENDPOINT` sends OpenTelemetry traces to SigNoz.
 
 The central warehouse contract is:
 - Raw/audit: `vsf_raw.raw_ingestion_batches`, `vsf_raw.langfuse_generations`, `vsf_raw.user_interactions`, `vsf_raw.signoz_*`

@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose-datahub.yml}"
-ENV_FILE="${ENV_FILE:-.env.datahub-vps}"
+ENV_FILE="${ENV_FILE:-.env}"
 PROJECT_NAME="${PROJECT_NAME:-datahub-vps}"
 MONITOR_SECONDS="${MONITOR_SECONDS:-900}"
 MONITOR_INTERVAL_SECONDS="${MONITOR_INTERVAL_SECONDS:-15}"

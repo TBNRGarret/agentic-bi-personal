@@ -253,5 +253,5 @@ Adding a live API should require:
 - Claude Agent SDK overview: https://code.claude.com/docs/en/agent-sdk/overview
 - LlamaIndex building an agent: https://developers.llamaindex.ai/python/framework/understanding/agent/
 - OpenAI function calling guide: https://platform.openai.com/docs/guides/function-calling
-- Existing service docs: `docs/OBSERVATION_SERVICE.md`
+- Existing service docs: `docs/PROJECT_GUIDE.md`
 - Existing service code: `src/backend/app/main.py`, `src/backend/app/agent.py`, `src/backend/app/sql_guard.py`

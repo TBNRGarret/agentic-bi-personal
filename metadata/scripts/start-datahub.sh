@@ -5,12 +5,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-if [[ ! -f .env.datahub-vps ]]; then
-  cp .env.datahub-vps.example .env.datahub-vps
-  echo "[INFO] Created .env.datahub-vps from example for local DataHub defaults."
+if [[ ! -f .env ]]; then
+  cp .env.example .env
+  echo "[INFO] Created .env from example for local shared defaults."
 fi
 
-docker compose --env-file .env.datahub-vps -f docker-compose-datahub.yml -p datahub-vps up -d
+docker compose --env-file .env -f docker-compose-datahub.yml -p datahub-vps up -d
 
 echo "[WAIT] Waiting for DataHub GMS at http://localhost:28080/health..."
 for _ in $(seq 1 90); do

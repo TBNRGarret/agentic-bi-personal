@@ -156,22 +156,15 @@ def build_router(
                 status_code=403, detail="Operational PostgreSQL requires admin"
             )
         try:
-            sql = validate_readonly_sql(payload.sql, payload.limit)
-            if payload.target.lower() in {"dwh", "postgres", "postgresql"}:
-                policy_tables = await postgres.describe_tables(("raw", "ops"))
-                dialect = "postgres"
-            else:
-                policy_tables = await clickhouse.describe_tables(
-                    tuple(settings.clickhouse_analytics_schema_list)
-                )
-                dialect = "clickhouse"
-            sql = apply_row_security(
-                sql,
-                dialect=dialect,
-                tables=policy_tables,
+            target, sql = await _prepare_sql_query(
+                settings=settings,
+                clickhouse=clickhouse,
+                postgres=postgres,
                 principal=principal,
+                target=payload.target,
+                sql=payload.sql,
+                limit=payload.limit,
             )
-            sql = validate_readonly_sql(sql, payload.limit)
         except (SqlSafetyError, RowSecurityError) as exc:
             await postgres.audit(
                 {
@@ -192,12 +185,10 @@ def build_router(
             )
             raise HTTPException(status_code=403, detail={"error": str(exc)}) from exc
         try:
-            if payload.target.lower() in {"dwh", "postgres", "postgresql"}:
+            if target == "dwh":
                 rows = await postgres.query(sql)
-                target = "dwh"
             else:
                 rows = await clickhouse.query(sql)
-                target = "clickhouse"
         except Exception as exc:
             await postgres.audit(
                 {
@@ -253,23 +244,15 @@ def build_router(
                 status_code=403, detail="Operational PostgreSQL requires admin"
             )
         try:
-            sql = validate_readonly_sql(payload.sql, payload.limit)
-            policy_tables = (
-                await postgres.describe_tables(("raw", "ops"))
-                if payload.target.lower() in {"dwh", "postgres", "postgresql"}
-                else await clickhouse.describe_tables(
-                    tuple(settings.clickhouse_analytics_schema_list)
-                )
-            )
-            sql = apply_row_security(
-                sql,
-                dialect="postgres"
-                if payload.target.lower() in {"dwh", "postgres", "postgresql"}
-                else "clickhouse",
-                tables=policy_tables,
+            _, sql = await _prepare_sql_query(
+                settings=settings,
+                clickhouse=clickhouse,
+                postgres=postgres,
                 principal=principal,
+                target=payload.target,
+                sql=payload.sql,
+                limit=payload.limit,
             )
-            sql = validate_readonly_sql(sql, payload.limit)
         except (SqlSafetyError, RowSecurityError) as exc:
             await postgres.audit(
                 {
@@ -626,3 +609,35 @@ def _identity(principal: Principal) -> dict[str, str]:
         "user_role": principal.role,
         "user_team": principal.team,
     }
+
+
+async def _prepare_sql_query(
+    *,
+    settings: Settings,
+    clickhouse: ClickHouseConnector,
+    postgres: PostgresConnector,
+    principal: Principal,
+    target: str,
+    sql: str,
+    limit: int,
+) -> tuple[str, str]:
+    normalized_target = target.lower()
+    if normalized_target in {"dwh", "postgres", "postgresql"}:
+        policy_tables = await postgres.describe_tables(("raw", "ops"))
+        dialect = "postgres"
+        resolved_target = "dwh"
+    else:
+        policy_tables = await clickhouse.describe_tables(
+            tuple(settings.clickhouse_analytics_schema_list)
+        )
+        dialect = "clickhouse"
+        resolved_target = "clickhouse"
+
+    validated_sql = validate_readonly_sql(sql, limit)
+    secured_sql = apply_row_security(
+        validated_sql,
+        dialect=dialect,
+        tables=policy_tables,
+        principal=principal,
+    )
+    return resolved_target, validate_readonly_sql(secured_sql, limit)

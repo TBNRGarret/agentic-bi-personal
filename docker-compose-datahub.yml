@@ -1,8 +1,8 @@
 # DataHub VPS profile for isolated memory/capacity testing.
 #
 # Run on the VPS:
-#   cp .env.datahub-vps.example .env.datahub-vps
-#   docker compose --env-file .env.datahub-vps -f docker-compose-datahub.yml -p datahub-vps up -d
+#   cp .env.example .env
+#   docker compose --env-file .env -f docker-compose-datahub.yml -p datahub-vps up -d
 #
 # This profile follows the current DataHub quickstart shape: MySQL,
 # OpenSearch, KRaft Kafka, system-update, GMS, frontend, and actions.

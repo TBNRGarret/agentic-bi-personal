@@ -10,32 +10,20 @@ import { pageFromPath, pathForPage, type Page } from "./types/navigation";
 import { LoginPage, type AuthUser } from "./components/Auth/LoginPage";
 import { api, getAuthToken, setAuthToken } from "./services/api.service";
 
-const PAGE_META: Record<Page, { title: string; subtitle: string }> = {
-  overview:       { title: "Overview",      subtitle: "ClickHouse Gold metrics, ingestion and service health" },
-  alerts:         { title: "Alerts",        subtitle: "Operational rules for cost, reliability, freshness and data quality" },
-  "data-quality": { title: "Data Quality",  subtitle: "Latest server quality checks and table-level status" },
-  "ai-console":   { title: "AI Console",    subtitle: "Metadata-first monitoring chat and safe SQL console" },
-  metabase:       { title: "BI Dashboards", subtitle: "Embedded Metabase analytics dashboards" },
-  "graph-database": { title: "Graph Database", subtitle: "FalkorDB schema graph for QueryWeaver-style retrieval" },
+const PAGE_CONFIG: Record<Page, { title: string; subtitle: string; render: () => JSX.Element }> = {
+  overview: { title: "Overview", subtitle: "ClickHouse Gold metrics, ingestion and service health", render: () => <OverviewPanel /> },
+  alerts: { title: "Alerts", subtitle: "Operational rules for cost, reliability, freshness and data quality", render: () => <AlertsPanel /> },
+  "data-quality": { title: "Data Quality", subtitle: "Latest server quality checks and table-level status", render: () => <DataQualityPanel /> },
+  "ai-console": { title: "AI Console", subtitle: "Metadata-first monitoring chat and safe SQL console", render: () => <AiConsolePanel /> },
+  metabase: { title: "BI Dashboards", subtitle: "Embedded Metabase analytics dashboards", render: () => <MetabasePanel /> },
+  "graph-database": { title: "Graph Database", subtitle: "FalkorDB schema graph for QueryWeaver-style retrieval", render: () => <GraphDatabasePanel /> },
 };
-
-function renderPage(page: Page) {
-  switch (page) {
-    case "overview": return <OverviewPanel />;
-    case "alerts": return <AlertsPanel />;
-    case "data-quality": return <DataQualityPanel />;
-    case "ai-console": return <AiConsolePanel />;
-    case "metabase": return <MetabasePanel />;
-    case "graph-database": return <GraphDatabasePanel />;
-    default: return <OverviewPanel />;
-  }
-}
 
 export default function App() {
   const [page, setPage] = useState<Page>(() => pageFromPath(window.location.pathname));
   const [user, setUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(Boolean(getAuthToken()));
-  const meta = PAGE_META[page];
+  const meta = PAGE_CONFIG[page];
 
   useEffect(() => {
     if (!getAuthToken()) {
@@ -81,7 +69,7 @@ export default function App() {
           <p className="page-subtitle">{meta.subtitle}</p>
         </header>
         <div className="page-body">
-          {renderPage(page)}
+          {meta.render()}
         </div>
       </main>
     </div>

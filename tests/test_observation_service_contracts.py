@@ -28,8 +28,7 @@ def test_terminal_api_is_allowlisted_and_shell_free():
 
 def test_observation_service_has_langfuse_and_signoz_hooks():
     observability = read("src/backend/app/observability.py")
-    compose = read("docker-compose.override.yml")
-    env_template = read(".env.observation.example")
+    env_template = read(".env.example")
 
     assert "from langfuse import Langfuse" in observability
     assert "OTLPSpanExporter" in observability
@@ -39,27 +38,27 @@ def test_observation_service_has_langfuse_and_signoz_hooks():
     assert "LANGFUSE_PUBLIC_KEY" in env_template
     assert "LANGFUSE_SECRET_KEY" in env_template
     assert "OTEL_EXPORTER_OTLP_ENDPOINT" in env_template
-    assert "signoz-otel-collector:4317" in compose
+    assert "signoz-otel-collector:4317" in env_template
 
 
 def test_observation_service_is_wired_into_compose_and_docs():
-    compose = read("docker-compose.override.yml")
-    docs = read("docs/OBSERVATION_SERVICE.md")
+    compose = read("docker-compose.agentic-ui.yml")
+    docs = read("docs/PROJECT_GUIDE.md")
     readme = read("README.md")
 
     assert "  observation-service:" in compose
     assert '"18000:8000"' in compose
     assert ".:/workspace:ro" in compose
     assert "POST /terminal/run" in docs
+    assert "Observation Service Contract" in docs
     assert "Langfuse" in docs
     assert "SigNoz" in docs
     assert "Observation Service | http://localhost:18000" in readme
 
 
 def test_observation_service_audit_plan_is_documented():
-    audit = read("docs/OBSERVATION_SERVICE_AUDIT.md")
+    audit = read("docs/PROJECT_GUIDE.md")
 
-    assert "Security Checks" in audit
-    assert "Telemetry Checks" in audit
-    assert "Audit Prompt" in audit
+    assert "Single Environment Model" in audit
+    assert "What Was Removed" in audit
     assert "git status && whoami" not in read("src/backend/app/terminal.py")

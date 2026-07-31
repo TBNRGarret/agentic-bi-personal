@@ -12,9 +12,6 @@ __pycache__/
 *.py[cod]
 
 .env
-.env.observation
-.env.datahub-vps
-.env.agentic-ui
 .venv/
 venv/
 *.swp

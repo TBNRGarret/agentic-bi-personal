@@ -102,6 +102,8 @@ export DATAHUB_MCP_MAX_TABLES=5
 export DATAHUB_MCP_MAX_COLUMNS=80
 ```
 
+Local workflows now use a single root `.env` copied from `.env.example`.
+
 ### Chạy qua stdio
 
 ```bash
