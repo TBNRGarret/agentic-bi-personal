@@ -58,10 +58,13 @@ def build_router(
     orchestrator = MultiAgentOrchestrator(settings, agent)
     model2_orchestrator = HybridText2SQLOrchestrator(settings, clickhouse, metadata, postgres)
 
-    async def run_chat(
-        payload: ChatRequest, endpoint: str, principal: Principal
-    ) -> dict[str, Any]:
-        query_id = uuid4().hex
+    def _pick_orchestrator(model: str):
+        return model2_orchestrator if model == "model2" else orchestrator
+
+    async def _resolve_session(
+        payload: ChatRequest, principal: Principal
+    ) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
+        """Resolve or create a session, returning (session_id, memory, conversation)."""
         session_id = payload.sessionId
         if not session_id:
             session = await context.create_session(principal, payload.question[:160])
@@ -72,14 +75,19 @@ def build_router(
             )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        request_memory = memory
-        active_orchestrator = model2_orchestrator if payload.model == "model2" else orchestrator
-        result = await active_orchestrator.answer(
+        return session_id, memory, server_conversation or payload.conversation
+
+    async def run_chat(
+        payload: ChatRequest, endpoint: str, principal: Principal
+    ) -> dict[str, Any]:
+        query_id = uuid4().hex
+        session_id, memory, conversation = await _resolve_session(payload, principal)
+        result = await _pick_orchestrator(payload.model).answer(
             payload.question,
             target=payload.target,
             limit=payload.limit,
-            conversation=server_conversation or payload.conversation,
-            memory=request_memory,
+            conversation=conversation,
+            memory=memory,
             principal=principal,
             include_synthesis=payload.includeSynthesis,
         )
@@ -89,7 +97,7 @@ def build_router(
             session_id=session_id,
             question=payload.question,
             result=result,
-            previous_memory=request_memory,
+            previous_memory=memory,
         )
         await _audit_result(
             postgres, query_id, endpoint, "chat", payload, result, principal
@@ -116,29 +124,19 @@ def build_router(
     ) -> StreamingResponse:
         query_id = uuid4().hex
         principal = principal_from_scope(request.scope)
-        session_id = payload.sessionId
-        if not session_id:
-            session = await context.create_session(principal, payload.question[:160])
-            session_id = str(session["session_id"])
-        try:
-            memory, server_conversation = await context.load_context(
-                principal, session_id
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        session_id, memory, conversation = await _resolve_session(payload, principal)
 
-        request_memory = memory
         return StreamingResponse(
             _stream_chat_events(
-                model2_orchestrator if payload.model == "model2" else orchestrator,
+                _pick_orchestrator(payload.model),
                 postgres,
                 payload,
                 query_id,
                 principal=principal,
                 context=context,
                 session_id=session_id,
-                memory=request_memory,
-                conversation=server_conversation or payload.conversation,
+                memory=memory,
+                conversation=conversation,
             ),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Query-ID": query_id},

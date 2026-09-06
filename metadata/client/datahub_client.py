@@ -10,6 +10,15 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from metadata.client.parsing import (
+    custom_properties as _custom_properties,
+    dataset_identifier as _dataset_identifier,
+    description as _description,
+    global_tags as _global_tags,
+    ms_to_iso as _ms_to_iso,
+    partition_info as _partition_info,
+)
+
 import httpx
 
 
@@ -36,71 +45,10 @@ def _graphql_request(query: str, variables: dict | None = None) -> dict:
     return data.get("data", {})
 
 
-def _ms_to_iso(ms: int) -> str:
-    from datetime import datetime, timezone
+# Parsing helpers imported from metadata.client.parsing:
+# _ms_to_iso, _description, _dataset_identifier,
+# _custom_properties, _global_tags, _partition_info
 
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).isoformat()
-
-
-def _description(entity: dict[str, Any]) -> str:
-    return (
-        (entity.get("editableProperties") or {}).get("description")
-        or (entity.get("properties") or {}).get("description")
-        or ""
-    )
-
-
-def _dataset_identifier(urn: str) -> str:
-    if "," not in urn:
-        return urn
-    return urn.split(",", 2)[1]
-
-
-def _custom_properties(properties: dict[str, Any] | None) -> dict[str, str]:
-    if not properties:
-        return {}
-    output: dict[str, str] = {}
-    for item in properties.get("customProperties") or []:
-        key = item.get("key") if isinstance(item, dict) else None
-        if key:
-            output[str(key)] = str(item.get("value", ""))
-    return output
-
-
-def _global_tags(global_tags: dict[str, Any] | None) -> list[dict[str, str]]:
-    tags: list[dict[str, str]] = []
-    for item in (global_tags or {}).get("tags") or []:
-        tag = item.get("tag") if isinstance(item, dict) else None
-        name = str((tag or {}).get("name") or "").strip()
-        if name:
-            tags.append({"tagFQN": name})
-    return tags
-
-
-def _partition_info(custom_properties: dict[str, str]) -> dict[str, str] | None:
-    lowered = {key.lower(): value for key, value in custom_properties.items()}
-    key = (
-        lowered.get("partition_key")
-        or lowered.get("partition_column")
-        or lowered.get("partitionkey")
-        or lowered.get("clickhouse.partition_key")
-    )
-    strategy = (
-        lowered.get("partition_strategy")
-        or lowered.get("partition_type")
-        or lowered.get("partition_granularity")
-        or lowered.get("clickhouse.partition_strategy")
-    )
-    expression = lowered.get("partition_expression") or lowered.get("clickhouse.partition_expression")
-    if not key and expression:
-        key = expression
-    if not key:
-        return None
-    return {
-        "key": str(key).strip(),
-        "strategy": str(strategy or "monthly").strip().lower(),
-        "expression": str(expression or "").strip(),
-    }
 
 
 class DataHubClient:

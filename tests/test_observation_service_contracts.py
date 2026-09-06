@@ -9,10 +9,10 @@ def read(path: str) -> str:
 
 
 def test_observation_service_exposes_plan_endpoints():
-    main = read("src/backend/app/main.py")
+    app_code = read("src/backend/app/main.py") + read("src/backend/app/routers/query.py")
 
-    for route in ('@app.post("/chat")', '@app.post("/terminal/run")', '@app.post("/query")', '@app.get("/schema")'):
-        assert route in main
+    for route in ('"/chat"', '"/terminal/run"', '"/query"', '"/schema"'):
+        assert route in app_code
 
 
 def test_terminal_api_is_allowlisted_and_shell_free():

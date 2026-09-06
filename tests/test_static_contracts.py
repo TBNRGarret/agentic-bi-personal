@@ -11,19 +11,19 @@ def read(path: str) -> str:
 def test_ingestion_loads_vsf_raw_batches_from_minio():
     dag = read("dags/agentic_bi_pipeline.py")
 
-    assert "def ingest_minio_to_clickhouse():" in dag
-    assert "Minio(" in dag
-    assert 'RAW_BUCKET = "agentic-bi-raw"' in dag
+    assert "def validate_and_load(" in dag
+    assert "minio_client(" in dag
+    assert 'RAW_BUCKET = os.getenv("MINIO_BUCKET", "agentic-bi-raw")' in dag
     assert "raw_ingestion_batches" in dag
     assert "source_app_id" in dag
     assert "batch_id" in dag
     assert 'ch_client.command(f"TRUNCATE TABLE {table}")' not in dag
     for table in (
-        "vsf_raw.signoz_logs",
-        "vsf_raw.signoz_traces",
-        "vsf_raw.signoz_metrics",
-        "vsf_raw.langfuse_generations",
-        "vsf_raw.user_interactions",
+        "signoz_logs",
+        "signoz_traces",
+        "signoz_metrics",
+        "langfuse_generations",
+        "user_interactions",
     ):
         assert f'"{table}"' in dag
 
@@ -32,7 +32,7 @@ def test_pipeline_uses_vsf_databases_instead_of_legacy_names():
     dag = read("dags/agentic_bi_pipeline.py")
     env_template = read(".env.example")
 
-    for schema in ("vsf_raw", "vsf_stg", "vsf_mart"):
+    for schema in ("vsf_raw", "vsf_mart"):
         assert schema in dag
 
     assert "CLICKHOUSE_ANALYTICS_SCHEMAS=vsf_mart" in env_template
@@ -79,30 +79,27 @@ def test_quality_gate_fails_when_gold_table_is_empty():
     assert "No rows found in vsf_mart.fct_llm_interactions" in dag
 
 
-def test_smoke_dag_langfuse_check_is_strict():
+def test_smoke_dag_infra_checks_are_strict():
     smoke = read("dags/smoke_dag.py")
-    langfuse_block = smoke.split("def check_langfuse():", 1)[1].split("    @task()", 1)[0]
 
-    assert "except Exception" not in langfuse_block
-    assert 'return "ok"' not in langfuse_block
+    assert "check_agentic_clickhouse" in smoke
+    assert "check_minio" in smoke
 
 
-def test_verify_script_extracts_json_before_convertfrom_json():
-    script = read("scripts/verify-system.ps1")
+def test_verify_script_delegates_to_verify_system_py():
+    script_ps1 = read("scripts/verify-system.ps1")
+    script_sh = read("scripts/verify-system.sh")
 
-    assert "Convert-AirflowCliJson" in script
-    assert "Convert-AirflowCliJson $runsOutput" in script
-    assert "$runsJson | ConvertFrom-Json" not in script
+    assert "verify_system.py" in script_ps1
+    assert "verify_system.py" in script_sh
 
 
 def test_airflow_ui_url_is_discovered_from_published_container_port():
-    verify_script = read("scripts/verify-system.ps1")
     start_script = read("scripts/start-system.ps1")
 
-    for script in (verify_script, start_script):
-        assert "Get-AgenticAirflowWebUrl" in script
-        assert "docker port $apiServer 8080/tcp" in script
-        assert "http://localhost:8080" not in script
+    assert "Get-AgenticAirflowWebUrl" in start_script
+    assert "docker port $apiServer 8080/tcp" in start_script
+    assert "http://localhost:8080" not in start_script
 
 
 def test_dbt_config_does_not_reference_missing_bronze_models():

@@ -21,11 +21,13 @@ def runner(*allowlist: tuple[str, ...], timeout_seconds: int = 2, max_output_cha
 
 
 def test_terminal_runner_executes_allowlisted_command_without_shell():
-    result = runner(("pwd",)).run("pwd")
+    cmd_tuple = (sys.executable, "-c")
+    cmd_str = f"{shlex.quote(sys.executable)} -c \"print('hello')\""
+    result = runner(cmd_tuple).run(cmd_str)
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == str(ROOT)
-    assert result.argv == ["pwd"]
+    assert result.stdout.strip() == "hello"
+    assert result.argv[0] == sys.executable
 
 
 @pytest.mark.parametrize(
