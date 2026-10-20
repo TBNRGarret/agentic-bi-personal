@@ -5,13 +5,17 @@ import json
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import bcrypt
 from jose import JWTError, jwt
 
 from .config import Settings
-from .connectors.postgres import PostgresConnector
+
+if TYPE_CHECKING:
+    from .connectors.postgres import PostgresConnector
+
+
 
 
 @dataclass(frozen=True)

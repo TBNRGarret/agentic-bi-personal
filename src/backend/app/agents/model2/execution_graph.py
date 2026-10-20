@@ -1,13 +1,3 @@
-from __future__ import annotations
-
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any
-from uuid import uuid4
-
-from .contracts import DecompositionPlan, SchemaRetrievalResult, SelectorResult
-
-
 """Execution graph data model for Model 2 pipeline DAG.
 
 Defines the DAG structure (ExecutionStep, ExecutionGraph) and the builder
@@ -29,6 +19,7 @@ from typing import Any
 from uuid import uuid4
 
 from .contracts import DecompositionPlan, SchemaRetrievalResult, SelectorResult
+
 
 
 @dataclass(frozen=True)

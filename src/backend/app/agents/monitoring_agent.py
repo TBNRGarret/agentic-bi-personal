@@ -21,7 +21,7 @@ from .request_orchestrator import (
     route_confidence_level,
 )
 from .row_security import apply_row_security
-from .sql_safety import validate_readonly_sql
+from .sql_safety import prepare_sql_candidate, validate_readonly_sql
 from .table_selector import TableSelector
 
 EventSink = Callable[[dict[str, Any]], None]
@@ -798,15 +798,14 @@ def _prepare_sql_candidate(
     tables: list[dict[str, Any]],
     principal: Principal,
 ) -> str:
-    candidate = validate_readonly_sql(sql, limit)
-    _validate_known_tables(candidate, tables)
-    candidate = apply_row_security(
-        candidate,
-        dialect="postgres" if datasource == "dwh" else "clickhouse",
+    return prepare_sql_candidate(
+        sql,
+        limit=limit,
+        datasource=datasource,
         tables=tables,
         principal=principal,
     )
-    return validate_readonly_sql(candidate, limit)
+
 
 
 def _score_sql_candidate(

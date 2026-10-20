@@ -15,7 +15,7 @@ from ..agents.dashboard_generator import generate_dashboard
 from ..agents.model2 import HybridText2SQLOrchestrator
 from ..agents.monitoring_agent import MonitoringAgent
 from ..agents.multi_agent import MultiAgentOrchestrator
-from ..agents.sql_safety import SqlSafetyError, validate_readonly_sql
+from ..agents.sql_safety import SqlSafetyError, prepare_sql_candidate, validate_readonly_sql
 from ..agents.row_security import RowSecurityError, apply_row_security, visible_tables
 from ..config import Settings
 from ..connectors.clickhouse import ClickHouseConnector
@@ -622,20 +622,19 @@ async def _prepare_sql_query(
     normalized_target = target.lower()
     if normalized_target in {"dwh", "postgres", "postgresql"}:
         policy_tables = await postgres.describe_tables(("raw", "ops"))
-        dialect = "postgres"
         resolved_target = "dwh"
     else:
         policy_tables = await clickhouse.describe_tables(
             tuple(settings.clickhouse_analytics_schema_list)
         )
-        dialect = "clickhouse"
         resolved_target = "clickhouse"
 
-    validated_sql = validate_readonly_sql(sql, limit)
-    secured_sql = apply_row_security(
-        validated_sql,
-        dialect=dialect,
+    secured_sql = prepare_sql_candidate(
+        sql,
+        limit=limit,
+        datasource=resolved_target,
         tables=policy_tables,
         principal=principal,
     )
-    return resolved_target, validate_readonly_sql(secured_sql, limit)
+    return resolved_target, secured_sql
+

@@ -6,13 +6,15 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .partition_manager import PartitionManager
+from .specialists import (
+    AgentResponse,
+    AgentTask,
+    Evidence,
+    _resolve_specialist_table,
+)
 
-
-# Type aliases (imported from multi_agent at runtime to avoid circular imports)
-AgentTask = Any
-AgentResponse = Any
-Evidence = Any
 EventSink = Any
+
 
 
 class PartitionAgent:
@@ -52,14 +54,6 @@ class PartitionAgent:
         event_sink: Any,
     ) -> Any:
         """Analyze partitions for tables matching the user's question."""
-        # Late imports to avoid circular dependency
-        from .multi_agent import (
-            AgentResponse,
-            AgentTask,
-            Evidence,
-            _resolve_specialist_table,
-        )
-
         del target, conversation, memory, principal, include_synthesis
         emit = event_sink or (lambda _: None)
 

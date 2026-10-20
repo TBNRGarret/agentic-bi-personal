@@ -12,7 +12,8 @@ from ...connectors.postgres import PostgresConnector
 from ...security import Principal
 from ...services.context_manager import contextual_question
 from ...services.llm import LlmService
-from ..monitoring_agent import _intent, _prepare_sql_candidate
+from ..semantics import _intent
+from ..sql_safety import prepare_sql_candidate as _prepare_sql_candidate
 from ..request_orchestrator import build_request_plan
 from .decomposer_agent import DecomposerAgent
 from .execution_graph import build_model2_execution_graph
